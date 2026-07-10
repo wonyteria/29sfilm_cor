@@ -1,0 +1,467 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserType {
+  ADMIN
+  TEACHER
+}
+
+enum EventType {
+  TWENTY_NINE_SECONDS
+  SHORTFORM_KING
+}
+
+enum EventStatus {
+  UPCOMING
+  RECRUITING
+  CLOSED
+}
+
+enum DreamOperationStatus {
+  PREPARING
+  RECRUITING
+  SELECTING
+  SUBMISSION_RUNNING
+  FINAL_REVIEW
+  CERTIFICATE_RUNNING
+  SCORE_REPORT_RUNNING
+  READY_TO_CLOSE
+  CLOSED
+}
+
+enum ApplicationStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  SELECTED
+  WAITLISTED
+  NOT_SELECTED
+  CANCELED
+}
+
+enum SubmissionSlotStatus {
+  NOT_SUBMITTED
+  PENDING
+  AUTO_CONFIRMED
+  MANUALLY_CONFIRMED
+  NEEDS_REVIEW
+  UNCONFIRMED
+  EXCLUDED
+}
+
+model User {
+  id           String    @id @default(cuid())
+  userType     UserType
+  name         String
+  email        String    @unique
+  phone        String?
+  passwordHash String
+  status       String    @default("ACTIVE")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  teacherProfile TeacherProfile?
+}
+
+model TeacherProfile {
+  id                      String   @id @default(cuid())
+  userId                  String   @unique
+  schoolName              String
+  schoolLevel             String?
+  teacherName             String
+  subject                 String?
+  contactPhone            String?
+  contactEmail            String?
+  affiliationName         String
+  bankCopyFileId          String?
+  idCardFileId            String?
+  affiliationChangeLocked Boolean  @default(false)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  user          User               @relation(fields: [userId], references: [id])
+  applications  DreamApplication[]
+  participations DreamParticipation[]
+}
+
+model Event {
+  id                   String      @id @default(cuid())
+  title                String
+  eventType            EventType
+  posterFileId         String?
+  contestStartAt       DateTime?
+  contestEndAt         DateTime?
+  submissionDeadlineAt DateTime?
+  topic                String?
+  homepageUrl          String?
+  submissionUrl        String?
+  notice               String?
+  status               EventStatus @default(UPCOMING)
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+
+  dreamEvent DreamEvent?
+}
+
+model DreamEvent {
+  id                              String               @id @default(cuid())
+  eventId                         String               @unique
+  operationStatus                 DreamOperationStatus @default(PREPARING)
+  recruitmentStartedAt            DateTime?
+  targetSubmissionCount           Int?
+  currentExpectedSubmissionCount  Int                  @default(0)
+  currentConfirmedSubmissionCount Int                  @default(0)
+  closedAt                        DateTime?
+  closedBy                        String?
+  createdAt                       DateTime             @default(now())
+  updatedAt                       DateTime             @updatedAt
+
+  event                 Event                     @relation(fields: [eventId], references: [id])
+  externalConnections   ExternalEventConnection[]
+  applications          DreamApplication[]
+  participations        DreamParticipation[]
+}
+
+model ExternalEventConnection {
+  id                   String    @id @default(cuid())
+  dreamEventId          String
+  externalEventKey      String
+  externalEventName     String
+  externalAdminUrl      String?
+  dbConnectionProfileId String?
+  fieldMapping          Json?
+  lastSyncedAt          DateTime?
+  status                String    @default("PENDING")
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  dreamEvent          DreamEvent           @relation(fields: [dreamEventId], references: [id])
+  externalSubmissions ExternalSubmission[]
+
+  @@unique([dreamEventId, externalEventKey])
+}
+
+model DreamApplication {
+  id                       String            @id @default(cuid())
+  dreamEventId              String
+  teacherProfileId          String
+  schoolNameSnapshot        String
+  affiliationNameSnapshot   String
+  expectedSubmissionCount   Int
+  usagePlan                 String?
+  plannedSubmissionDate     DateTime?
+  memo                      String?
+  status                    ApplicationStatus @default(SUBMITTED)
+  appliedAt                 DateTime          @default(now())
+  selectedAt                DateTime?
+
+  dreamEvent     DreamEvent      @relation(fields: [dreamEventId], references: [id])
+  teacherProfile TeacherProfile  @relation(fields: [teacherProfileId], references: [id])
+  participation  DreamParticipation?
+}
+
+model DreamParticipation {
+  id                         String   @id @default(cuid())
+  dreamEventId                String
+  applicationId               String   @unique
+  teacherProfileId            String
+  status                      String   @default("ACTIVE")
+  selectedAt                  DateTime?
+  expectedSubmissionCount     Int
+  confirmedSubmissionCount    Int      @default(0)
+  unconfirmedSubmissionCount  Int      @default(0)
+  certificateStatus           String   @default("NOT_READY")
+  scoreReportStatus           String   @default("NOT_READY")
+  snackSupportStatus          String   @default("UNDER_REVIEW")
+  closedAt                    DateTime?
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+
+  dreamEvent      DreamEvent          @relation(fields: [dreamEventId], references: [id])
+  application     DreamApplication    @relation(fields: [applicationId], references: [id])
+  teacherProfile  TeacherProfile      @relation(fields: [teacherProfileId], references: [id])
+  slots           SubmissionSlot[]
+  matches         SubmissionMatch[]
+  scheduledMails  ScheduledMail[]
+  couponAssignments CouponAssignment[]
+  snackSupport    SnackSupport?
+  activityCertificates ActivityCertificate[]
+  scoreReports    ScoreReport[]
+  requests        TeacherRequest[]
+}
+
+model SubmissionSlot {
+  id              String               @id @default(cuid())
+  participationId String
+  slotNo          Int
+  title           String?
+  participantName String?
+  submissionUrl   String?
+  status          SubmissionSlotStatus @default(NOT_SUBMITTED)
+  source          String?
+  confirmedAt     DateTime?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  participation DreamParticipation @relation(fields: [participationId], references: [id])
+  matches       SubmissionMatch[]
+
+  @@unique([participationId, slotNo])
+}
+
+model ExternalSubmission {
+  id                  String   @id @default(cuid())
+  connectionId         String
+  externalSubmissionKey String
+  eventType            EventType
+  affiliationName      String
+  title                String
+  participantName      String?
+  submissionUrl        String?
+  submittedAt          DateTime?
+  preliminaryScore     Decimal?
+  finalResult          String?
+  rawData              Json?
+  syncedAt             DateTime @default(now())
+
+  connection ExternalEventConnection @relation(fields: [connectionId], references: [id])
+  matches    SubmissionMatch[]
+
+  @@unique([connectionId, externalSubmissionKey])
+}
+
+model SubmissionMatch {
+  id                   String   @id @default(cuid())
+  participationId       String
+  externalSubmissionId  String
+  slotId                String?
+  matchType             String
+  matchStatus           String   @default("ACTIVE")
+  matchedBy             String?
+  matchedAt             DateTime @default(now())
+
+  participation      DreamParticipation @relation(fields: [participationId], references: [id])
+  externalSubmission ExternalSubmission @relation(fields: [externalSubmissionId], references: [id])
+  slot               SubmissionSlot?     @relation(fields: [slotId], references: [id])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String?
+  action      String
+  entityType  String
+  entityId    String
+  beforeData  Json?
+  afterData   Json?
+  createdAt   DateTime @default(now())
+}
+
+model MailTemplate {
+  id           String   @id @default(cuid())
+  mailType     String
+  title        String
+  body         String
+  variables    String[]
+  isActive     Boolean  @default(true)
+  createdBy    String?
+  updatedBy    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  scheduledMails ScheduledMail[]
+}
+
+model ScheduledMail {
+  id              String    @id @default(cuid())
+  templateId      String?
+  dreamEventId     String?
+  participationId String?
+  mailType        String
+  senderName      String?
+  senderEmail     String
+  subject         String
+  body            String
+  scheduledAt     DateTime?
+  sentAt          DateTime?
+  status          String    @default("DRAFT")
+  createdBy       String?
+  updatedBy       String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  template      MailTemplate?       @relation(fields: [templateId], references: [id])
+  participation DreamParticipation? @relation(fields: [participationId], references: [id])
+  recipients    MailRecipient[]
+  sendLogs      MailSendLog[]
+}
+
+model MailRecipient {
+  id              String   @id @default(cuid())
+  scheduledMailId String
+  schoolName      String?
+  teacherName     String?
+  email           String
+  recipientType   String   @default("TO")
+  isExcluded      Boolean  @default(false)
+  createdAt       DateTime @default(now())
+
+  scheduledMail ScheduledMail @relation(fields: [scheduledMailId], references: [id])
+}
+
+model MailSendLog {
+  id              String   @id @default(cuid())
+  scheduledMailId String
+  recipientEmail  String
+  status          String
+  providerMessageId String?
+  errorMessage    String?
+  sentAt          DateTime?
+  openedAt        DateTime?
+  createdAt       DateTime @default(now())
+
+  scheduledMail ScheduledMail @relation(fields: [scheduledMailId], references: [id])
+}
+
+model Coupon {
+  id           String   @id @default(cuid())
+  couponNumber String   @unique
+  status       String   @default("UNUSED")
+  uploadedBy   String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  assignments CouponAssignment[]
+}
+
+model CouponAssignment {
+  id              String   @id @default(cuid())
+  couponId         String
+  participationId  String
+  assignedBy       String?
+  assignedAt       DateTime @default(now())
+  status           String   @default("ASSIGNED")
+
+  coupon        Coupon             @relation(fields: [couponId], references: [id])
+  participation DreamParticipation @relation(fields: [participationId], references: [id])
+
+  @@unique([couponId, participationId])
+}
+
+model SnackSupport {
+  id                  String   @id @default(cuid())
+  participationId      String   @unique
+  status              String   @default("UNDER_REVIEW")
+  expectedPaymentDate DateTime?
+  amount              Int?
+  adminReason         String?
+  teacherMessage      String?
+  updatedBy           String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  participation DreamParticipation @relation(fields: [participationId], references: [id])
+}
+
+model CertificateTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  eventType   EventType?
+  fileId      String?
+  fieldLayout Json?
+  isDefault   Boolean  @default(false)
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  certificates ActivityCertificate[]
+}
+
+model ActivityCertificate {
+  id              String   @id @default(cuid())
+  participationId String
+  templateId      String?
+  status          String   @default("NOT_READY")
+  certificateNo   String?
+  schoolName      String
+  workTitles      String[]
+  studentNames    String[]
+  activityStartAt DateTime?
+  activityEndAt   DateTime?
+  issuedAt        DateTime?
+  fileId          String?
+  createdBy       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  participation DreamParticipation @relation(fields: [participationId], references: [id])
+  template      CertificateTemplate? @relation(fields: [templateId], references: [id])
+}
+
+model ScoreReport {
+  id              String   @id @default(cuid())
+  participationId String
+  status          String   @default("NOT_READY")
+  fileId          String?
+  generatedAt     DateTime?
+  createdBy       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  participation DreamParticipation @relation(fields: [participationId], references: [id])
+  entries       ScoreReportEntry[]
+}
+
+model ScoreReportEntry {
+  id              String   @id @default(cuid())
+  scoreReportId   String
+  title           String
+  participantName String?
+  preliminaryScore Decimal?
+  rank            Int?
+  finalRoundStatus String?
+  createdAt       DateTime @default(now())
+
+  scoreReport ScoreReport @relation(fields: [scoreReportId], references: [id])
+}
+
+model TeacherRequest {
+  id              String   @id @default(cuid())
+  participationId String?
+  teacherProfileId String?
+  requestType     String
+  status          String   @default("SUBMITTED")
+  title           String
+  body            String?
+  adminReply      String?
+  handledBy       String?
+  handledAt       DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  participation DreamParticipation? @relation(fields: [participationId], references: [id])
+}
+
+model SchoolParticipationSummary {
+  id                    String   @id @default(cuid())
+  schoolName             String   @unique
+  applicationCount       Int      @default(0)
+  selectedCount          Int      @default(0)
+  completedSubmissionCount Int    @default(0)
+  nonPerformanceCount    Int      @default(0)
+  trustStatus            String   @default("FIRST_TIME")
+  updatedAt              DateTime @updatedAt
+}
+
+model SchoolAdminMemo {
+  id         String   @id @default(cuid())
+  schoolName String
+  memo       String
+  createdBy  String?
+  createdAt  DateTime @default(now())
+}

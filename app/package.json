@@ -1,0 +1,21 @@
+{
+  "name": "29with",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @29with/web",
+    "dev:web": "npm run dev --workspace @29with/web",
+    "dev:api": "npm run start:dev --workspace @29with/api",
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "db:generate": "npm run generate --workspace @29with/database"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}

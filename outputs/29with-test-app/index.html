@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>29 WITH 테스트 앱</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">29</div>
+          <div>
+            <strong>29 WITH</strong>
+            <span>꿈프 운영 테스트</span>
+          </div>
+        </div>
+
+        <div class="role-switch" aria-label="사용자 화면 전환">
+          <button class="active" data-role="admin" type="button">관리자</button>
+          <button data-role="teacher" type="button">선생님</button>
+        </div>
+
+        <nav id="adminNav" class="nav">
+          <span>관리자 메뉴</span>
+          <button class="active" data-page="adminDashboard" type="button">꿈프 대시보드</button>
+          <button data-page="workbox" type="button">관리자 작업함</button>
+          <button data-page="eventOps" type="button">행사 운영</button>
+          <button data-page="members" type="button">회원/참여 학교</button>
+          <button data-page="applications" type="button">신청/선정</button>
+          <button data-page="submissions" type="button">출품 확인</button>
+          <button data-page="benefits" type="button">혜택/지원</button>
+          <button data-page="certificates" type="button">활동확인서</button>
+          <button data-page="scores" type="button">심사 결과</button>
+          <button data-page="mails" type="button">메일/공지</button>
+          <button data-page="requests" type="button">문의/요청</button>
+          <button data-page="settings" type="button">엑셀/관리 설정</button>
+          <button data-page="history" type="button">히스토리</button>
+          <button data-page="qaChecklist" type="button">테스트 체크리스트</button>
+        </nav>
+
+        <nav id="teacherNav" class="nav hidden">
+          <span>선생님 메뉴</span>
+          <button class="active" data-page="teacherDashboard" type="button">내 대시보드</button>
+          <button data-page="availableEvents" type="button">신청 가능한 행사</button>
+          <button data-page="teacherWorks" type="button">학생/작품 관리</button>
+          <button data-page="teacherBenefits" type="button">혜택/지원</button>
+          <button data-page="teacherInbox" type="button">공지/메일함</button>
+          <button data-page="teacherDocs" type="button">활동확인서/심사표</button>
+          <button data-page="teacherHistory" type="button">참여 이력</button>
+          <button data-page="teacherProfile" type="button">내 프로필</button>
+        </nav>
+
+        <div class="side-card">
+          <span>선택 꿈프</span>
+          <strong id="sideEventName"></strong>
+          <small id="sideEventMeta"></small>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">29 Platform 대외협력 관리 시스템</p>
+            <h1 id="pageTitle">꿈프 대시보드</h1>
+          </div>
+          <div class="top-actions">
+            <select id="eventSelect" aria-label="꿈프 행사 선택"></select>
+            <button class="secondary" id="resetDemoBtn" type="button">데모 초기화</button>
+          </div>
+        </header>
+
+        <section id="app"></section>
+      </main>
+    </div>
+
+    <dialog id="modal">
+      <form method="dialog">
+        <div class="modal-head">
+          <h2 id="modalTitle"></h2>
+          <button class="icon" value="cancel" aria-label="닫기">×</button>
+        </div>
+        <div id="modalBody" class="modal-body"></div>
+        <div id="modalActions" class="modal-actions"></div>
+      </form>
+    </dialog>
+
+    <div id="toast" class="toast" role="status"></div>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
