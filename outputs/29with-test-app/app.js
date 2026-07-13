@@ -1498,7 +1498,7 @@ function bindActions() {
   document.querySelector("#resetDemoBtn").onclick = () => {
     confirmAction("데모 초기화", "모든 테스트 상태를 처음으로 되돌립니다.", () => {
       state = initialState();
-      saveState();
+      normalizeSampleContent();
       toast("데모가 초기화되었습니다.");
     }, "초기화");
   };
@@ -2712,4 +2712,528 @@ function openTeacherWorkDocRequest(key) {
   openTeacherRequestModal("작품 문서 수정 요청", "작품 문서 수정 요청", "수정이 필요한 항목과 올바른 내용을 적어 주세요.", work);
 }
 
+function projectHealth(item) {
+  const confirmed = item.works.filter(isConfirmedWork).length;
+  const review = item.works.filter(isPendingMatch).length;
+  const missing = Math.max(item.requested - confirmed, 0);
+  const event = state.events.find((row) => row.id === item.eventId);
+  return { event, confirmed, review, missing };
+}
+
+function eventActionSummary(event) {
+  const rows = state.submissions.filter((item) => item.eventId === event.id);
+  const applications = state.applications.filter((item) => item.eventId === event.id);
+  const pendingApplications = applications.filter((item) => item.status === "신청접수").length;
+  const reviewWorks = rows.reduce((sum, item) => sum + item.works.filter(isPendingMatch).length, 0);
+  const missingWorks = rows.reduce((sum, item) => {
+    const confirmed = item.works.filter(isConfirmedWork).length;
+    return sum + Math.max(item.requested - confirmed, 0);
+  }, 0);
+  const openRequests = state.requests.filter((item) => item.eventId === event.id && item.status !== "완료").length;
+  const pendingDocs = rows.filter((item) => item.finalApproved && item.certificate !== "발급 완료").length;
+  return { pendingApplications, reviewWorks, missingWorks, openRequests, pendingDocs };
+}
+
+function renderAdminDashboard() {
+  const event = currentEvent();
+  const totals = state.events.reduce((acc, item) => {
+    const summary = eventActionSummary(item);
+    acc.actions += summary.pendingApplications + summary.reviewWorks + summary.missingWorks + summary.openRequests + summary.pendingDocs;
+    acc.open += item.closed ? 0 : 1;
+    acc.selected += item.selectedSchools || 0;
+    acc.confirmed += item.confirmedWorks || 0;
+    acc.expected += item.expectedWorks || 0;
+    return acc;
+  }, { actions: 0, open: 0, selected: 0, confirmed: 0, expected: 0 });
+  const current = eventActionSummary(event);
+  const nextAction = current.pendingApplications ? ["applications", "신청/선정 검토", `${current.pendingApplications}건의 신청접수를 선착순, 패널티, 성실 참여 기준으로 확인하세요.`]
+    : current.reviewWorks || current.missingWorks ? ["submissions", "출품 엑셀 확인", `확인 필요 ${current.reviewWorks}건, 미확인 ${current.missingWorks}편을 정리하세요.`]
+    : current.openRequests ? ["requests", "문의/요청 답변", `${current.openRequests}건의 선생님 요청에 답변이 필요합니다.`]
+    : current.pendingDocs ? ["certificates", "활동확인서 승인", `${current.pendingDocs}건의 확인서 발급 상태를 마무리하세요.`]
+    : ["workbox", "작업함 확인", "현재 긴급 처리 건은 없습니다. 전체 작업함에서 다음 일정을 확인하세요."];
+  return `
+    <section class="panel focus-panel">
+      <div class="panel-head">
+        <div>
+          <h2>진행 중인 꿈프</h2>
+          <p class="muted">여러 행사가 겹쳐도 행사별로 분리해서 보고, 카드를 누르면 모든 관리 메뉴가 해당 행사 기준으로 바뀝니다.</p>
+        </div>
+        <div class="modal-actions compact-actions">
+          <button class="secondary" data-page="workbox" type="button">작업함</button>
+          <button class="primary" data-action="create-event" type="button">새 행사 등록</button>
+        </div>
+      </div>
+      <div class="event-strip">
+        ${state.events.map((item) => {
+          const summary = eventActionSummary(item);
+          const workload = summary.pendingApplications + summary.reviewWorks + summary.missingWorks + summary.openRequests + summary.pendingDocs;
+          return `
+            <button class="event-summary ${item.id === state.selectedEventId ? "active" : ""}" data-select-event="${item.id}" type="button">
+              <span>${badge(item.status)}</span>
+              <strong>${item.title}</strong>
+              <small>${item.type} · ${item.deadlineLabel}</small>
+              <div class="mini-metrics">
+                <b>선정 ${item.selectedSchools || 0}교</b>
+                <b>출품 ${item.confirmedWorks || 0}/${item.expectedWorks || 0}편</b>
+                <b class="${workload ? "danger-text" : ""}">처리 ${workload}건</b>
+              </div>
+            </button>
+          `;
+        }).join("")}
+      </div>
+    </section>
+    <div class="grid four">
+      ${cardStat("운영 중", `${totals.open}개`, "겹쳐 진행되는 꿈프")}
+      ${cardStat("선정 학교", `${totals.selected}교`, "전체 진행 행사")}
+      ${cardStat("출품 확인", `${totals.confirmed}/${totals.expected}편`, "엑셀 매칭 기준")}
+      ${cardStat("처리 필요", `${totals.actions}건`, "신청, 매칭, 요청, 문서")}
+    </div>
+    <section class="panel action-panel">
+      <div class="panel-head">
+        <div>
+          <h2>${event.title}</h2>
+          <p class="muted">${event.type} · ${event.status} · ${event.deadlineLabel} · 목표 ${event.targetWorks || 0}편</p>
+        </div>
+        <div class="modal-actions compact-actions">
+          <button class="secondary" data-page="eventOps" type="button">행사 설정</button>
+          <button class="secondary" data-page="mails" type="button">메일 확인</button>
+          <button class="primary" data-page="${nextAction[0]}" type="button">${nextAction[1]}</button>
+        </div>
+      </div>
+      <div class="decision-row">
+        <div>
+          <span class="eyebrow">다음 추천 작업</span>
+          <strong>${nextAction[1]}</strong>
+          <p class="muted">${nextAction[2]}</p>
+        </div>
+        <div class="status-stack">
+          ${badge(`신청 ${current.pendingApplications}건`)}
+          ${badge(`매칭 확인 ${current.reviewWorks}건`)}
+          ${badge(`미확인 ${current.missingWorks}편`)}
+          ${badge(`요청 ${current.openRequests}건`)}
+        </div>
+      </div>
+      <div class="ops-grid">
+        <button data-page="applications" type="button"><strong>신청/선정</strong><span>선착순, 패널티, 성실 참여 기준으로 선정 처리</span></button>
+        <button data-page="submissions" type="button"><strong>출품 확인</strong><span>관리자 엑셀 업로드 후 학교명/소속명 매칭 검토</span></button>
+        <button data-page="benefits" type="button"><strong>혜택/지원</strong><span>구독권, 간식비 지급 예정일, 지원 상태 관리</span></button>
+        <button data-page="certificates" type="button"><strong>확인서</strong><span>최종 출품 리스트 승인 후 PDF 발급</span></button>
+        <button data-page="scores" type="button"><strong>심사 결과</strong><span>예심점수, 순위, 본심 진출 여부 공개</span></button>
+        <button data-page="requests" type="button"><strong>문의/요청</strong><span>선생님 수정 요청과 답변 처리</span></button>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h2>최근 작업 이력</h2><span>등록된 모든 관리자의 주요 작업이 남습니다.</span></div>
+      ${renderAudit()}
+    </section>
+  `;
+}
+
+function renderTeacherDashboard() {
+  const projects = teacherParticipations();
+  const applications = state.applications.filter((app) => app.school === state.teacherProfile.schoolName);
+  const openRequests = state.requests.filter((request) => request.school === state.teacherProfile.schoolName && request.status !== "완료");
+  if (!projects.length) {
+    return `
+      <section class="panel focus-panel">
+        <div class="panel-head">
+          <div><h2>아직 참여 중인 꿈프가 없습니다</h2><p class="muted">신청 가능한 행사를 먼저 확인해 주세요. 신청 후 선정 상태와 안내 메일이 이곳에 정리됩니다.</p></div>
+          <button class="primary" data-page="availableEvents" type="button">신청 가능한 행사 보기</button>
+        </div>
+      </section>
+    `;
+  }
+  const selected = currentTeacherParticipation() || projects[0];
+  const selectedHealth = projectHealth(selected);
+  const important = selectedHealth.missing ? ["teacherWorks", "미확인 작품 확인", `${selectedHealth.missing}편이 아직 출품 확인되지 않았습니다.`]
+    : selected.certificate === "발급 완료" ? ["teacherDocs", "활동확인서 확인", "활동확인서가 발급되어 다운로드할 수 있습니다."]
+    : selected.score === "공개 완료" ? ["teacherDocs", "심사표 확인", "심사표가 공개되었습니다."]
+    : openRequests.length ? ["teacherInbox", "요청 답변 확인", `${openRequests.length}건의 문의/요청 상태를 확인하세요.`]
+    : ["teacherBenefits", "혜택 일정 확인", "구독권, 간식비, 문서 발급 일정을 확인할 수 있습니다."];
+  return `
+    <section class="panel focus-panel">
+      <div class="panel-head">
+        <div>
+          <h2>내 꿈프 현황</h2>
+          <p class="muted">여러 행사에 동시에 참여해도 행사별로 따로 관리됩니다. 먼저 확인이 필요한 항목만 크게 보여줍니다.</p>
+        </div>
+        <div class="modal-actions compact-actions">
+          <button class="secondary" data-page="teacherInbox" type="button">알림함</button>
+          <button class="primary" data-page="${important[0]}" type="button">${important[1]}</button>
+        </div>
+      </div>
+      <div class="event-strip">
+        ${projects.map((item) => {
+          const health = projectHealth(item);
+          return `
+            <button class="event-summary ${item.id === state.selectedTeacherParticipationId ? "active" : ""}" data-teacher-project="${item.id}" type="button">
+              <span>${badge(health.missing ? "확인 필요" : "정상 진행")}</span>
+              <strong>${health.event?.title || item.eventId}</strong>
+              <small>${health.event?.type || ""} · 출품 소속명/팀명: ${item.affiliation}</small>
+              <div class="mini-metrics">
+                <b>신청 ${item.requested}편</b>
+                <b>확인 ${health.confirmed}편</b>
+                <b class="${health.missing ? "danger-text" : ""}">미확인 ${health.missing}편</b>
+              </div>
+            </button>
+          `;
+        }).join("")}
+      </div>
+    </section>
+    <section class="panel action-panel">
+      <div class="decision-row">
+        <div>
+          <span class="eyebrow">지금 확인할 일</span>
+          <strong>${important[1]}</strong>
+          <p class="muted">${important[2]}</p>
+        </div>
+        <div class="status-stack">
+          ${badge(selected.certificate)}
+          ${badge(selected.score)}
+          ${badge(selected.snackDate ? `간식비 ${selected.snackDate}` : selected.snackStatus)}
+        </div>
+      </div>
+      <div class="ops-grid">
+        <button data-page="teacherWorks" type="button"><strong>학생/작품</strong><span>출품 확인 여부와 누락 작품 확인</span></button>
+        <button data-page="teacherBenefits" type="button"><strong>혜택/지원</strong><span>구독권, 간식비 지급 예정일 확인</span></button>
+        <button data-page="teacherDocs" type="button"><strong>문서</strong><span>활동확인서와 심사표 다운로드/수정 요청</span></button>
+        <button data-page="teacherInbox" type="button"><strong>알림/문의</strong><span>관리자 답변, 메일, 기능 알림 확인</span></button>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h2>내 신청 현황</h2><span>신청이 접수되었는지, 선정되었는지 행사별로 확인합니다.</span></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>행사</th><th>출품 소속명/팀명</th><th>예상 작품</th><th>상태</th><th>신청일</th></tr></thead>
+          <tbody>
+            ${applications.map((app) => {
+              const event = state.events.find((item) => item.id === app.eventId);
+              return `<tr><td><strong>${event?.title || app.eventId}</strong><small>${event?.type || ""}</small></td><td>${app.affiliation || app.school}</td><td>${app.expected}편</td><td>${badge(app.status)}</td><td>${app.date}</td></tr>`;
+            }).join("")}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function normalizeSampleContent() {
+  const eventMap = {
+    e1: {
+      title: "제13회 박카스 29초영화제",
+      type: "29초영화제",
+      status: "모집중",
+      deadlineLabel: "D-5",
+      totalPrize: "총상금 2,000만원",
+      theme: "나를 깨우는 순간",
+      organizerNotice: "박카스 브랜드 메시지를 29초 안에 담아내는 영화제입니다. 꿈프 선정 학교는 출품 소속명을 학교명과 정확히 일치시켜야 합니다."
+    },
+    e2: {
+      title: "제1회 동반성장 29역숏폼왕",
+      type: "29역숏폼왕",
+      status: "모집중",
+      deadlineLabel: "D-12",
+      totalPrize: "총상금 1,000만원",
+      theme: "함께 성장하는 우리",
+      organizerNotice: "사회적 가치와 동반성장을 주제로 숏폼 영상을 제작합니다. 출품 팀명을 꿈프 신청 학교명과 동일하게 입력해 주세요."
+    },
+    e3: {
+      title: "간단요리사 29역숏폼왕",
+      type: "29역숏폼왕",
+      status: "심사반영",
+      deadlineLabel: "마감",
+      totalPrize: "총상금 500만원",
+      theme: "간단하지만 특별한 요리",
+      organizerNotice: "일상 속 간단한 요리 아이디어를 숏폼으로 소개하는 행사입니다."
+    }
+  };
+  state.events.forEach((event) => {
+    if (eventMap[event.id]) Object.assign(event, eventMap[event.id]);
+  });
+  Object.assign(state.teacherProfile, {
+    schoolName: "방학중학교",
+    teacherName: "김하늘",
+    phone: state.teacherProfile.phone || "010-1234-5678",
+    verificationDoc: state.teacherProfile.verificationDoc || "교직원 확인증.pdf",
+    trustStatus: "성실 참여"
+  });
+  const appMap = {
+    a1: ["방학중학교", "방학중학교", "김하늘", "성실 참여", "선정"],
+    a2: ["서울고등학교", "서울고등학교", "박민수", "확인 필요 이력", "선정"],
+    a3: ["한빛고등학교", "한빛고등학교", "정유진", "첫 참여", "예비"],
+    a4: ["푸른중학교", "푸른중학교", "이소라", "첫 참여", "신청접수"],
+    a5: ["방학중학교", "방학중학교", "김하늘", "성실 참여", "선정"]
+  };
+  state.applications.forEach((app) => {
+    const row = appMap[app.id];
+    if (!row) return;
+    [app.school, app.affiliation, app.teacher, app.trust, app.status] = row;
+  });
+  state.schools = [
+    { school: "방학중학교", teacher: "김하늘", email: "teacher@school.kr", history: "신청 4 · 선정 3 · 완료 3 · 미이행 0", memo: "응답 빠름, 출품명 정확" },
+    { school: "서울고등학교", teacher: "박민수", email: "park@school.kr", history: "신청 2 · 선정 2 · 완료 1 · 미이행 1", memo: "공백 차이 자주 발생" },
+    { school: "한빛고등학교", teacher: "정유진", email: "jung@school.kr", history: "신청 1 · 선정 1 · 완료 1 · 미이행 0", memo: "학생 이름 확인 필요" }
+  ];
+  const participationMap = {
+    p1: ["방학중학교", "방학중학교", "지급 예정", "관리자 확인 중", "발표 후 제공", [
+      ["똑같은 고민, 달라진 속도", "강하은", "자동확인", 9.2, 1, "진출"],
+      ["달라진 교실", "김희야", "자동확인", 8.7, 2, "-"],
+      ["내일의 속도", "노유림", "자동확인", 8.1, 3, "-"],
+      ["비 오는 운동장", "이다은", "자동확인", 7.8, 4, "-"],
+      ["", "", "미확인", null, null, "-"]
+    ]],
+    p2: ["서울고등학교", "서울고등학교", "검토 중", "발급 전", "발표 후 제공", [
+      ["우리들의 여름", "최도윤", "수동확인", 8.9, 1, "진출"],
+      ["골목 끝에서", "윤지후", "자동확인", 7.4, 2, "-"],
+      ["종례 후", "김민재", "자동확인", 6.9, 3, "-"]
+    ]],
+    p3: ["방학중학교", "방학중학교", "지급 일정 확인 중", "발급 전", "발표 후 제공", [
+      ["", "", "미확인", null, null, ""],
+      ["", "", "미확인", null, null, ""],
+      ["", "", "미확인", null, null, ""]
+    ]]
+  };
+  state.submissions.forEach((item) => {
+    const row = participationMap[item.id];
+    if (!row) return;
+    item.school = row[0];
+    item.affiliation = row[1];
+    item.snackStatus = row[2];
+    item.certificate = row[3];
+    item.score = row[4];
+    item.works.forEach((work, index) => {
+      const source = row[5][index];
+      if (!source) return;
+      work.title = source[0];
+      work.student = source[1];
+      work.status = source[2];
+      work.preliminaryScore = source[3];
+      work.rank = source[4];
+      work.finalRound = source[5];
+    });
+  });
+  state.requests = state.requests.map((request, index) => index === 0
+    ? { ...request, school: "서울고등학교", type: "작품 확인", message: "학생 1명이 출품했는데 확인되지 않습니다.", status: "접수" }
+    : { ...request, school: "방학중학교", type: "활동확인서 수정", message: "학생 이름 표기를 확인하고 싶습니다.", status: "접수" });
+  state.coupons.forEach((coupon) => {
+    if (coupon.code === "ABC-0001" || coupon.code === "ABC-0003") coupon.school = "방학중학교";
+    if (coupon.code === "ABC-0002") coupon.school = "서울고등학교";
+    if (coupon.status !== "미사용") coupon.status = "지급완료";
+  });
+  saveState();
+}
+
+function extractCouponCodes(rawRows) {
+  const codes = [];
+  rawRows.forEach((row) => {
+    const entries = Array.isArray(row) ? row : Object.entries(row || {}).map(([key, value]) => [key, value]);
+    entries.forEach(([key, value]) => {
+      const label = normalizeColumnName(key);
+      const text = String(value || "").trim();
+      if (!text) return;
+      const looksLikeCouponColumn = /쿠폰|coupon|code|번호/i.test(label);
+      const matches = text.match(/[A-Z0-9]{2,}(?:-[A-Z0-9]{2,})+/gi) || [];
+      if (looksLikeCouponColumn && !matches.length && text.length >= 3) codes.push(text);
+      matches.forEach((code) => codes.push(code.toUpperCase()));
+    });
+  });
+  return [...new Set(codes.map((code) => code.trim()).filter(Boolean))];
+}
+
+async function parseCouponFile(file) {
+  if (!file) return ["ABC-0005", "ABC-0006"];
+  const lowerName = file.name.toLowerCase();
+  if ((lowerName.endsWith(".xlsx") || lowerName.endsWith(".xls")) && globalThis.XLSX) {
+    const workbook = globalThis.XLSX.read(await file.arrayBuffer(), { type: "array" });
+    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rawRows = globalThis.XLSX.utils.sheet_to_json(firstSheet, { defval: "" });
+    return extractCouponCodes(rawRows);
+  }
+  const text = await file.text();
+  const rawRows = lowerName.endsWith(".csv") ? parseCsvRows(text) : parseHtmlTableRows(text);
+  if (!rawRows.length && (lowerName.endsWith(".xlsx") || lowerName.endsWith(".xls"))) {
+    throw new Error("엑셀 파서가 로드되지 않았습니다. 인터넷 연결 후 다시 열거나 CSV/HTML XLS 파일을 사용해 주세요.");
+  }
+  return extractCouponCodes(rawRows);
+}
+
+async function readTemplateReference(file) {
+  if (!file) {
+    return {
+      name: "샘플 활동확인서 레퍼런스",
+      status: "분석 완료",
+      updatedAt: new Date().toLocaleDateString("ko-KR"),
+      mimeType: "sample",
+      dataUrl: ""
+    };
+  }
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("템플릿 파일을 읽지 못했습니다."));
+    reader.readAsDataURL(file);
+  });
+  return {
+    name: file.name,
+    status: file.type.includes("image") ? "이미지 레퍼런스 적용" : "레퍼런스 등록 완료",
+    updatedAt: new Date().toLocaleDateString("ko-KR"),
+    mimeType: file.type || "unknown",
+    dataUrl
+  };
+}
+
+function renderBenefits() {
+  return `
+    <div class="grid three">
+      ${cardStat("구독권 재고", `${state.coupons.filter((coupon) => coupon.status === "미사용").length}개`, "미사용 쿠폰")}
+      ${cardStat("지급 완료", `${state.coupons.filter((coupon) => coupon.status === "지급완료").length}개`, "선정 학교 자동 지급")}
+      <div class="stat action-stat">
+        <span>쿠폰 엑셀</span>
+        <strong>업로드</strong>
+        <input id="couponExcelInput" type="file" accept=".xls,.xlsx,.csv" />
+        <button class="secondary" data-action="upload-coupons" type="button">쿠폰 번호 인식</button>
+      </div>
+    </div>
+    <section class="notice-panel"><strong>쿠폰 인식 기준</strong><span>쿠폰번호, coupon, code, 번호 컬럼을 우선 확인하고, 값 안의 ABC-0001 같은 번호 패턴도 자동 추출합니다. 중복 번호는 추가하지 않습니다.</span></section>
+    <section class="panel">
+      <div class="panel-head"><h2>혜택/지원</h2><span>간식비 지급 예정일은 선생님 대시보드에 표시됩니다.</span></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>학교</th><th>구독권</th><th>쿠폰번호</th><th>간식비</th><th>예정일</th><th>문구</th><th>조치</th></tr></thead>
+          <tbody>
+            ${eventParticipations().map((item) => `
+              <tr>
+                <td><strong>${item.school}</strong></td>
+                <td>${badge(item.couponCode ? "지급 완료" : "재고 없음")}</td>
+                <td>${item.couponCode || "-"}</td>
+                <td>${badge(item.snackStatus)}</td>
+                <td>${item.snackDate || "-"}</td>
+                <td>${item.snackDate ? "출품 확인 완료 학교 대상으로 순차 지급됩니다." : "일정이 확정되면 안내됩니다."}</td>
+                <td><button class="secondary" data-snack="${item.id}" type="button">예정일 입력</button></td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function renderCertificates() {
+  const rows = eventParticipations();
+  return `
+    <div class="toolbar">
+      <input id="certificateTemplateInput" type="file" accept=".png,.jpg,.jpeg,.webp,.pdf" />
+      <button class="secondary" data-action="upload-template" type="button">확인서 레퍼런스 적용</button>
+      <span class="muted">현재 템플릿: ${state.certificateTemplate.name} · ${state.certificateTemplate.status} · ${state.certificateTemplate.updatedAt}</span>
+    </div>
+    <div class="grid two">
+      <section class="panel">
+        <div class="panel-head"><h2>활동확인서</h2><span>최종 승인 후 PDF 다운로드 가능</span></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>학교</th><th>작품</th><th>학생 이름</th><th>출품 리스트</th><th>발급 상태</th><th>다음 단계</th><th>조치</th></tr></thead>
+            <tbody>
+              ${rows.map((item) => {
+                const confirmed = item.works.filter(isConfirmedWork);
+                const missingNames = confirmed.some((work) => !work.student);
+                return `
+                  <tr>
+                    <td><strong>${item.school}</strong></td>
+                    <td>${confirmed.length}편</td>
+                    <td>${missingNames ? badge("이름 확인 필요") : "확인 완료"}</td>
+                    <td>${badge(item.finalApproved ? "최종 승인" : "승인 대기")}</td>
+                    <td>${badge(item.certificate)}</td>
+                    <td>${certificateBlockReason(item)}</td>
+                    <td>
+                      <button class="secondary" data-certificate-preview="${item.id}" type="button">미리보기</button>
+                      <button class="primary" ${item.finalApproved && !missingNames ? "" : "disabled"} data-certificate-approve="${item.id}" type="button">승인/PDF</button>
+                    </td>
+                  </tr>
+                `;
+              }).join("")}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      ${certificatePreview(rows[0])}
+    </div>
+  `;
+}
+
+function certificatePreview(item) {
+  const works = item?.works.filter(isConfirmedWork) || [];
+  const template = state.certificateTemplate || {};
+  const imageTemplate = String(template.mimeType || "").includes("image") && template.dataUrl;
+  return `
+    <section class="certificate-preview ${imageTemplate ? "with-template" : ""}">
+      ${imageTemplate ? `<img class="template-preview-image" src="${template.dataUrl}" alt="${template.name}" />` : ""}
+      <div class="certificate-text-layer">
+        <span>제 2602 호</span>
+        <div class="logo">29</div>
+        <h2>활동확인서</h2>
+        <p><b>학교:</b> ${item?.school || "학교명"}</p>
+        <p><b>작품명:</b> ${works.map((work) => work.title).filter(Boolean).join(", ") || "작품명"}</p>
+        <p><b>이름:</b> ${works.map((work) => work.student).filter(Boolean).join(", ") || "학생명"}</p>
+        <p>위 학생은 2026년 4월 8일부터 2026년 5월 21일까지<br />영상 꿈나무 양성 프로젝트에서 성실히 활동하였기에 이 증서를 수여합니다.</p>
+        <strong>2026. 7. 1.</strong>
+      </div>
+    </section>
+  `;
+}
+
+const baseHandleAction = handleAction;
+handleAction = function enhancedHandleAction(action) {
+  if (action === "upload-coupons") {
+    const file = document.querySelector("#couponExcelInput")?.files?.[0];
+    if (!file) {
+      const nextA = `ABC-${String(state.coupons.length + 1).padStart(4, "0")}`;
+      const nextB = `ABC-${String(state.coupons.length + 2).padStart(4, "0")}`;
+      state.coupons.push({ code: nextA, status: "미사용", school: "" }, { code: nextB, status: "미사용", school: "" });
+      audit("쿠폰 엑셀 업로드", `샘플 2개 인식 · 총 ${state.coupons.length}개`);
+      toast("샘플 쿠폰 2개가 추가되었습니다.");
+      saveState();
+      render();
+      return;
+    }
+    parseCouponFile(file).then((codes) => {
+      const existing = new Set(state.coupons.map((coupon) => coupon.code));
+      const newCodes = codes.filter((code) => !existing.has(code));
+      newCodes.forEach((code) => state.coupons.push({ code, status: "미사용", school: "" }));
+      audit("쿠폰 엑셀 업로드", `${newCodes.length}개 인식 · 총 ${state.coupons.length}개`);
+      toast(file ? `쿠폰 번호 ${newCodes.length}개를 인식했습니다.` : "샘플 쿠폰 2개가 추가되었습니다.");
+      saveState();
+      render();
+    }).catch((error) => toast(error.message || "쿠폰 파일 분석 중 오류가 발생했습니다."));
+    return;
+  }
+  if (action === "upload-template") {
+    const file = document.querySelector("#certificateTemplateInput")?.files?.[0];
+    if (!file) {
+      state.certificateTemplate = {
+        name: "샘플 활동확인서 레퍼런스",
+        status: "분석 완료",
+        updatedAt: new Date().toLocaleDateString("ko-KR"),
+        mimeType: "sample",
+        dataUrl: ""
+      };
+      audit("확인서 레퍼런스 업로드", state.certificateTemplate.name);
+      toast("샘플 활동확인서 레퍼런스를 적용했습니다.");
+      saveState();
+      render();
+      return;
+    }
+    readTemplateReference(file).then((template) => {
+      state.certificateTemplate = template;
+      audit("확인서 레퍼런스 업로드", template.name);
+      toast(file ? "활동확인서 레퍼런스를 적용했습니다." : "샘플 활동확인서 레퍼런스를 적용했습니다.");
+      saveState();
+      render();
+    }).catch((error) => toast(error.message || "확인서 레퍼런스 적용 중 오류가 발생했습니다."));
+    return;
+  }
+  return baseHandleAction(action);
+};
+
+normalizeSampleContent();
 render();
