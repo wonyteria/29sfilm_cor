@@ -413,6 +413,12 @@ textarea {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.event-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
 .panel,
 .card {
   border: 1px solid var(--line);
@@ -469,12 +475,82 @@ textarea {
   gap: 12px;
   text-align: left;
   border: 1px solid var(--line);
+  border-radius: 8px;
   background: #fff;
+  color: var(--ink);
+  padding: 16px;
 }
 
 .event-card.active {
   border-color: #9fb2ff;
   background: var(--brand-soft);
+}
+
+.event-card.selected {
+  border-color: #9fb2ff;
+  background: var(--brand-soft);
+}
+
+.event-card p,
+.event-row span,
+.mini-card small,
+.mini-card p,
+.empty-state p {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.event-list {
+  display: grid;
+  gap: 10px;
+}
+
+.event-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 14px;
+  color: var(--ink);
+  text-align: left;
+}
+
+.mini-card,
+.empty-state {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 16px;
+}
+
+.mini-card p {
+  margin-top: 8px;
+  font-weight: 800;
+}
+
+.mini-card small,
+.empty-state p {
+  display: block;
+  margin-top: 8px;
+}
+
+.empty-state {
+  background: #fbfdff;
+}
+
+.pill {
+  display: inline-flex;
+  width: fit-content;
+  border-radius: 999px;
+  background: var(--info-soft);
+  color: var(--info);
+  padding: 5px 9px;
+  font-size: 12px;
+  font-weight: 900;
 }
 
 .event-card .card-top {
