@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>29 WITH 테스트 앱</title>
+    <title>29 WITH</title>
     <link rel="stylesheet" href="./styles.css" />
     <link rel="stylesheet" href="/outputs/29with-test-app/styles.css" />
   </head>
@@ -14,7 +14,7 @@
           <div class="brand-mark">29</div>
           <div>
             <strong>29 WITH</strong>
-            <span>꿈프 운영 테스트</span>
+            <span>꿈프 운영</span>
           </div>
         </div>
 
@@ -38,7 +38,6 @@
           <button data-page="requests" type="button">문의/요청</button>
           <button data-page="settings" type="button">엑셀/관리 설정</button>
           <button data-page="history" type="button">히스토리</button>
-          <button data-page="qaChecklist" type="button">테스트 체크리스트</button>
         </nav>
 
         <nav id="teacherNav" class="nav hidden">
@@ -68,7 +67,7 @@
           </div>
           <div class="top-actions">
             <select id="eventSelect" aria-label="꿈프 행사 선택"></select>
-            <button class="secondary" id="resetDemoBtn" type="button">데모 초기화</button>
+            <button class="secondary" id="resetDemoBtn" type="button">초기화</button>
           </div>
         </header>
 
@@ -93,6 +92,25 @@
     <script>
       if (!document.querySelector("#app > *")) {
         document.write('<script src="/outputs/29with-test-app/app.js"><\\/script>');
+      }
+    </script>
+    <script>
+      if (window.confirmAction) {
+        const originalConfirmAction = window.confirmAction;
+        window.confirmAction = (title, body, onConfirm, confirmLabel) => {
+          const cleanTitle = title === "데모 초기화" ? "초기화" : title;
+          const cleanBody = body === "모든 테스트 상태를 처음으로 되돌립니다."
+            ? "현재 브라우저에 저장된 임시 상태를 처음으로 되돌립니다."
+            : body;
+          return originalConfirmAction(cleanTitle, cleanBody, onConfirm, confirmLabel);
+        };
+      }
+
+      if (window.toast) {
+        const originalToast = window.toast;
+        window.toast = (message) => originalToast(
+          message === "데모가 초기화되었습니다." ? "초기화되었습니다." : message
+        );
       }
     </script>
   </body>
