@@ -1,26 +1,66 @@
 import { AdminDashboardPreview } from "@/features/admin/admin-dashboard-preview";
 import { TeacherDashboardPreview } from "@/features/teacher/teacher-dashboard-preview";
 
+const categories = ["All", "Dream Project", "Supporters", "Ambassadors", "Partners"];
+
 export default function HomePage() {
   return (
-    <main className="min-h-screen bg-surface text-ink">
-      <section className="mx-auto flex w-full max-w-[1440px] flex-col gap-6 px-6 py-6">
-        <header className="flex flex-wrap items-center justify-between gap-4">
+    <main className="app-shell">
+      <aside className="side-nav" aria-label="29 WITH navigation">
+        <div className="brand-box">
+          <span>29</span>
           <div>
-            <p className="text-sm text-muted">29 Platform 대외협력 관리 시스템</p>
-            <h1 className="mt-1 text-3xl font-bold tracking-normal">29 WITH</h1>
+            <strong>29 WITH</strong>
+            <small>Collaboration ops</small>
           </div>
-          <div className="flex gap-2">
-            <button className="rounded-card border border-line bg-white px-4 py-2 text-sm font-semibold">
-              영화제 관리자
-            </button>
-            <button className="rounded-card bg-brand px-4 py-2 text-sm font-semibold text-white">
-              꿈프 보기
-            </button>
+        </div>
+        <nav>
+          <a className="active">Overview</a>
+          <a>Projects</a>
+          <a>Workbox</a>
+          <a>Mail Templates</a>
+          <a>History</a>
+        </nav>
+      </aside>
+
+      <section className="content-area">
+        <header className="top-bar">
+          <div>
+            <p>29 Platform collaboration management system</p>
+            <h1>29 WITH</h1>
+          </div>
+          <div className="top-actions">
+            <button className="ghost-button">Teacher View</button>
+            <button className="ghost-button">Admin View</button>
+            <button className="primary-button">Sync</button>
           </div>
         </header>
 
-        <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <div className="category-tabs" aria-label="Program categories">
+          {categories.map((category) => (
+            <button className={category === "Dream Project" ? "active" : ""} key={category}>
+              {category}
+            </button>
+          ))}
+        </div>
+
+        <div className="intro-grid">
+          <article>
+            <span>Current build scope</span>
+            <strong>Dream Project</strong>
+            <p>
+              Applications, selection, coupons, submission Excel matching, certificates, score reports,
+              and closing history are managed as one connected workflow.
+            </p>
+          </article>
+          <article>
+            <span>GitHub repository</span>
+            <strong>wonyteria/29sfilm_cor</strong>
+            <p>The static prototype is available through GitHub Pages for external testing.</p>
+          </article>
+        </div>
+
+        <div className="dashboard-grid">
           <AdminDashboardPreview />
           <TeacherDashboardPreview />
         </div>
