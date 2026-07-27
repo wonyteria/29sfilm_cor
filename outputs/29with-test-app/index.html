@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>29 WITH 테스트 앱</title>
     <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="/outputs/29with-test-app/styles.css" />
   </head>
   <body>
     <div class="shell">
@@ -89,5 +90,10 @@
     <div id="toast" class="toast" role="status"></div>
     <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
     <script src="./app.js"></script>
+    <script>
+      if (!document.querySelector("#app > *")) {
+        document.write('<script src="/outputs/29with-test-app/app.js"><\\/script>');
+      }
+    </script>
   </body>
 </html>
