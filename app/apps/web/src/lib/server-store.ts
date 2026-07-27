@@ -103,16 +103,23 @@ export async function addEvent(input: Omit<DreamEvent, "id" | "createdAt">) {
 export async function addCoupons(couponNumbers: string[]) {
   const state = await readState();
   const existing = new Set(state.coupons.map((coupon) => coupon.couponNumber));
-  const coupons: Coupon[] = couponNumbers
+  const seenInUpload = new Set<string>();
+  const normalized = couponNumbers
     .map((couponNumber) => couponNumber.trim())
-    .filter(Boolean)
-    .filter((couponNumber) => !existing.has(couponNumber))
-    .map((couponNumber) => ({
-      id: id("coupon"),
-      couponNumber,
-      status: "UNUSED",
-      uploadedAt: now()
-    }));
+    .filter(isCouponLike)
+    .filter((couponNumber) => {
+      const key = couponNumber.toUpperCase();
+      if (existing.has(couponNumber) || existing.has(key) || seenInUpload.has(key)) return false;
+      seenInUpload.add(key);
+      return true;
+    });
+
+  const coupons: Coupon[] = normalized.map((couponNumber) => ({
+    id: id("coupon"),
+    couponNumber,
+    status: "UNUSED",
+    uploadedAt: now()
+  }));
 
   state.coupons.unshift(...coupons);
   state.notices.unshift(makeNotice("쿠폰 업로드", `쿠폰 번호 ${coupons.length}개를 인식했습니다.`));
@@ -209,13 +216,17 @@ function rankWorks(works: SubmissionWork[]) {
 
 function pick(row: Record<string, string | number | undefined>, keys: string[]) {
   const normalizedEntries = new Map(
-    Object.entries(row).map(([key, value]) => [key.replace(/\s/g, "").toLowerCase(), value])
+    Object.entries(row).map(([key, value]) => [normalizeKey(key), value])
   );
   for (const key of keys) {
-    const value = row[key] ?? normalizedEntries.get(key.replace(/\s/g, "").toLowerCase());
+    const value = row[key] ?? normalizedEntries.get(normalizeKey(key));
     if (value != null && value !== "") return value;
   }
   return undefined;
+}
+
+function normalizeKey(value: string) {
+  return value.replace(/\s/g, "").toLowerCase();
 }
 
 function isSimilar(left: string, right: string) {
@@ -240,6 +251,12 @@ function levenshtein(left: string, right: string) {
     }
   }
   return dp[left.length][right.length];
+}
+
+function isCouponLike(value: string) {
+  if (!value) return false;
+  if (/쿠폰|coupon|code|번호/i.test(value)) return false;
+  return /[A-Za-z0-9]{2,}(?:-[A-Za-z0-9]{2,})+/.test(value) || /^[A-Za-z0-9]{6,}$/.test(value);
 }
 
 function text(value: string | number | undefined) {

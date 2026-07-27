@@ -93,16 +93,18 @@ export default function HomePage() {
     });
     if (!response.ok) {
       setMessage(await readErrorMessage(response));
-      return;
+      return null;
     }
-    setData(await response.json());
+    const nextData = (await response.json()) as DashboardResponse;
+    setData(nextData);
     setMessage(doneMessage);
+    return nextData;
   }
 
   async function handleCreateEvent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
-    await postJson(
+    const nextData = await postJson(
       "/api/events",
       {
         title: formData.get("title"),
@@ -119,8 +121,11 @@ export default function HomePage() {
       },
       "꿈프 행사를 등록했습니다."
     );
-    event.currentTarget.reset();
-    setAdminPage("dashboard");
+    if (nextData) {
+      event.currentTarget.reset();
+      setSelectedEventId(nextData.events[0]?.id ?? "");
+      setAdminPage("dashboard");
+    }
   }
 
   async function handleCouponUpload(file?: File) {
