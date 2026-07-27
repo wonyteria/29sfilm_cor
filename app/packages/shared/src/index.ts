@@ -22,6 +22,51 @@ export type MatchStatus = "MATCHED" | "NEEDS_REVIEW" | "MISSING";
 
 export type TrustStatus = "BENEFIT" | "NORMAL" | "PENALTY";
 
+export type DreamEventSummary = {
+  id: string;
+  title: string;
+  eventType: EventType;
+  status: DreamOperationStatus;
+  contestPeriod: string;
+  submissionDeadlineLabel: string;
+  topic: string;
+  prize: string;
+  selectedSchoolCount: number;
+  expectedSubmissionCount: number;
+  confirmedSubmissionCount: number;
+  reviewRequiredCount: number;
+  mailQueueCount: number;
+};
+
+export type TeacherParticipation = {
+  id: string;
+  dreamEventId: string;
+  eventTitle: string;
+  eventType: EventType;
+  schoolName: string;
+  affiliationName: string;
+  teacherName: string;
+  trustStatus: TrustStatus;
+  expectedSubmissionCount: number;
+  confirmedSubmissionCount: number;
+  certificateStatus: "NOT_READY" | "READY";
+  scoreReportStatus: "NOT_READY" | "READY";
+  snackSupportLabel: string;
+  nextAction: string;
+  works: Array<{
+    id: string;
+    title: string;
+    directorOrEntrant: string;
+    affiliationName: string;
+    submissionUrl?: string;
+    preliminaryScore?: number;
+    rank?: number;
+    finalRoundStatus: "ADVANCED" | "NOT_ADVANCED" | "NOT_USED";
+    matchStatus: MatchStatus;
+    matchReason: string;
+  }>;
+};
+
 export const eventTypeLabels: Record<EventType, string> = {
   TWENTY_NINE_SECONDS: "29초영화제",
   SHORTFORM_KING: "29역숏폼왕"

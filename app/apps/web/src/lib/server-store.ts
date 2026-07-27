@@ -1,6 +1,14 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import type { AdminNotice, AppState, Coupon, DashboardResponse, DreamApplication, DreamEvent, SubmissionWork } from "./with-types";
+import type {
+  AdminNotice,
+  AppState,
+  Coupon,
+  DashboardResponse,
+  DreamApplication,
+  DreamEvent,
+  SubmissionWork
+} from "./with-types";
 
 const emptyState: AppState = {
   events: [],
@@ -12,7 +20,10 @@ const emptyState: AppState = {
   notices: []
 };
 
-const dataDir = process.env.DATA_DIR || (process.env.VERCEL ? "/tmp/29with-data" : path.join(process.cwd(), ".data"));
+const dataDir =
+  process.env.DATA_DIR ||
+  (process.env.VERCEL ? "/tmp/29with-data" : path.join(process.cwd(), ".data"));
+
 const dataFile = path.join(dataDir, "29with-state.json");
 
 function cloneState(state: AppState): AppState {
@@ -49,7 +60,9 @@ export async function writeState(state: AppState): Promise<AppState> {
 }
 
 export function buildDashboard(state: AppState): DashboardResponse {
-  const activeEventIds = new Set(state.events.filter((event) => event.status !== "CLOSED").map((event) => event.id));
+  const activeEventIds = new Set(
+    state.events.filter((event) => event.status !== "CLOSED").map((event) => event.id)
+  );
   const selectedApplications = state.applications.filter((application) => application.status === "SELECTED");
   const confirmedSubmissions = state.submissions.filter((work) => work.matchStatus === "MATCHED");
   const reviewRequired = state.submissions.filter((work) => work.matchStatus === "NEEDS_REVIEW");
@@ -59,7 +72,10 @@ export function buildDashboard(state: AppState): DashboardResponse {
     stats: {
       activeEventCount: activeEventIds.size,
       selectedSchoolCount: selectedApplications.length,
-      expectedSubmissionCount: selectedApplications.reduce((sum, application) => sum + application.expectedSubmissionCount, 0),
+      expectedSubmissionCount: selectedApplications.reduce(
+        (sum, application) => sum + application.expectedSubmissionCount,
+        0
+      ),
       confirmedSubmissionCount: confirmedSubmissions.length,
       reviewRequiredCount: reviewRequired.length,
       unusedCouponCount: state.coupons.filter((coupon) => coupon.status === "UNUSED").length
@@ -71,11 +87,10 @@ export async function resetState() {
   return writeState(cloneState(emptyState));
 }
 
-export async function addEvent(input: Omit<DreamEvent, "id" | "createdAt" | "status"> & { status?: DreamEvent["status"] }) {
+export async function addEvent(input: Omit<DreamEvent, "id" | "createdAt">) {
   const state = await readState();
   const event: DreamEvent = {
     id: id("event"),
-    status: input.status ?? "PREPARING",
     createdAt: now(),
     ...input
   };
@@ -113,7 +128,7 @@ export async function addCertificateTemplate(fileName: string, dataUrl?: string)
     dataUrl,
     uploadedAt: now()
   });
-  state.notices.unshift(makeNotice("활동확인서 템플릿", `${fileName} 템플릿을 저장했습니다.`));
+  state.notices.unshift(makeNotice("활동확인서 템플릿", `${fileName} 파일을 저장했습니다.`));
   await writeState(state);
   return buildDashboard(state);
 }
@@ -124,25 +139,32 @@ export async function analyzeSubmissions(eventId: string, rows: Array<Record<str
   if (!event) throw new Error("행사를 찾을 수 없습니다.");
 
   const applications = state.applications.filter((application) => application.eventId === eventId);
-  const works = rows.map((row) => normalizeSubmissionRow(eventId, row, applications));
-  state.submissions = state.submissions.filter((work) => work.eventId !== eventId).concat(works);
+  const works = rows
+    .map((row) => normalizeSubmissionRow(eventId, row, applications))
+    .filter((work) => work.affiliationName || work.title || work.participantName);
+
+  state.submissions = state.submissions.filter((work) => work.eventId !== eventId).concat(rankWorks(works));
   state.notices.unshift(
     makeNotice(
-      "출품 엑셀 분석",
-      `자동 매칭 ${works.filter((work) => work.matchStatus === "MATCHED").length}건, 확인 필요 ${works.filter((work) => work.matchStatus === "NEEDS_REVIEW").length}건`
+      "출품 목록 분석",
+      `총 ${works.length}건 분석, 자동 확인 ${works.filter((work) => work.matchStatus === "MATCHED").length}건, 확인 필요 ${works.filter((work) => work.matchStatus === "NEEDS_REVIEW").length}건`
     )
   );
   await writeState(state);
   return buildDashboard(state);
 }
 
-function normalizeSubmissionRow(eventId: string, row: Record<string, string | number | undefined>, applications: DreamApplication[]): SubmissionWork {
-  const affiliationName = text(row["소속"] ?? row["소속명"] ?? row["팀명"] ?? row["affiliation"] ?? row["team"]);
-  const title = text(row["작품명"] ?? row["작품제목"] ?? row["제목"] ?? row["title"]);
-  const participantName = text(row["감독"] ?? row["출품자"] ?? row["이름"] ?? row["participant"] ?? row["director"]);
-  const submissionUrl = text(row["출품 URL"] ?? row["URL"] ?? row["url"] ?? row["링크"]);
-  const score = number(row["예심평점"] ?? row["평점"] ?? row["score"]);
-  const finalResult = text(row["수상결과"] ?? row["본심"] ?? row["finalResult"]);
+function normalizeSubmissionRow(
+  eventId: string,
+  row: Record<string, string | number | undefined>,
+  applications: DreamApplication[]
+): SubmissionWork {
+  const affiliationName = text(pick(row, ["소속", "소속명", "팀명", "affiliation", "team"]));
+  const title = text(pick(row, ["작품명", "작품제목", "제목", "title"]));
+  const participantName = text(pick(row, ["감독", "출품자", "이름", "participant", "director"]));
+  const submissionUrl = text(pick(row, ["출품 URL", "출품URL", "보기 URL", "영상 URL", "URL", "url", "링크"]));
+  const score = number(pick(row, ["예심평점", "평점", "일반평점", "score"]));
+  const finalResult = text(pick(row, ["수상결과", "본심", "finalResult"]));
   const exact = applications.find((application) => application.affiliationName === affiliationName);
   const similar = exact ? undefined : applications.find((application) => isSimilar(application.affiliationName, affiliationName));
 
@@ -159,8 +181,37 @@ function normalizeSubmissionRow(eventId: string, row: Record<string, string | nu
     finalResult,
     finalRoundStatus: finalResult === "1차통과" ? "ADVANCED" : finalResult ? "NOT_ADVANCED" : "NOT_USED",
     matchStatus: exact ? "MATCHED" : similar ? "NEEDS_REVIEW" : "MISSING",
-    matchReason: exact ? "학교명/소속명이 완전히 일치합니다." : similar ? "띄어쓰기 또는 일부 글자 차이를 확인해야 합니다." : "일치하는 신청 학교가 없습니다."
+    matchReason: exact
+      ? "신청한 출품 소속명과 완전히 일치합니다."
+      : similar
+        ? "띄어쓰기 또는 한 글자 차이가 있어 관리자 확인이 필요합니다."
+        : "일치하는 신청 학교가 없습니다."
   };
+}
+
+function rankWorks(works: SubmissionWork[]) {
+  const grouped = new Map<string, SubmissionWork[]>();
+  for (const work of works) {
+    const key = work.affiliationName || "미분류";
+    grouped.set(key, [...(grouped.get(key) ?? []), work]);
+  }
+
+  for (const group of grouped.values()) {
+    group
+      .sort((left, right) => (right.preliminaryScore ?? -1) - (left.preliminaryScore ?? -1))
+      .forEach((work, index) => {
+        work.rank = index + 1;
+      });
+  }
+
+  return works;
+}
+
+function pick(row: Record<string, string | number | undefined>, keys: string[]) {
+  for (const key of keys) {
+    if (row[key] != null && row[key] !== "") return row[key];
+  }
+  return undefined;
 }
 
 function isSimilar(left: string, right: string) {

@@ -129,3 +129,16 @@ export const statusLabels: Record<EventStatus, string> = {
   SCORE_READY: "심사표",
   CLOSED: "종료"
 };
+
+export const applicationStatusLabels: Record<DreamApplication["status"], string> = {
+  SUBMITTED: "신청접수",
+  SELECTED: "선정",
+  WAITLISTED: "예비",
+  NOT_SELECTED: "미선정"
+};
+
+export const matchStatusLabels: Record<MatchStatus, string> = {
+  MATCHED: "자동 확인",
+  NEEDS_REVIEW: "확인 필요",
+  MISSING: "미매칭"
+};
