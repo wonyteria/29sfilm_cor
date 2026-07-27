@@ -125,8 +125,8 @@ export const statusLabels: Record<EventStatus, string> = {
   SELECTING: "선정중",
   SUBMISSION_RUNNING: "출품 확인",
   FINAL_REVIEW: "최종 확인",
-  CERTIFICATE_READY: "활동확인서",
-  SCORE_READY: "심사표",
+  CERTIFICATE_READY: "확인서 발급",
+  SCORE_READY: "심사표 공개",
   CLOSED: "종료"
 };
 

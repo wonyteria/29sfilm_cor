@@ -5,8 +5,8 @@
 
 ## 바로 열기
 
-- 테스트 앱: `outputs/29with-test-app/index.html`
-- GitHub Pages를 켜면 루트 `index.html`이 테스트 앱으로 이동합니다.
+- 운영 앱: `app/apps/web`
+- GitHub Pages 루트는 정적 안내만 표시합니다. 실제 운영 테스트는 Vercel의 Next.js 앱을 사용합니다.
 
 ## 주요 기능
 
@@ -37,7 +37,7 @@
 로컬에서 아래 명령으로 주요 화면과 흐름을 점검할 수 있습니다.
 
 ```bash
-node outputs/29with-test-app/validate.mjs
+npm run build --workspace @29with/web
 ```
 
 검증 항목에는 엑셀 매칭, 쿠폰 지급, 활동확인서 발급, 심사표 공개, 메일/문의/히스토리 흐름이 포함됩니다.

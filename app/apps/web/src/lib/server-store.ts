@@ -208,8 +208,12 @@ function rankWorks(works: SubmissionWork[]) {
 }
 
 function pick(row: Record<string, string | number | undefined>, keys: string[]) {
+  const normalizedEntries = new Map(
+    Object.entries(row).map(([key, value]) => [key.replace(/\s/g, "").toLowerCase(), value])
+  );
   for (const key of keys) {
-    if (row[key] != null && row[key] !== "") return row[key];
+    const value = row[key] ?? normalizedEntries.get(key.replace(/\s/g, "").toLowerCase());
+    if (value != null && value !== "") return value;
   }
   return undefined;
 }

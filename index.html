@@ -4,37 +4,45 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>29 WITH</title>
-    <meta http-equiv="refresh" content="0; url=./outputs/29with-test-app" />
     <style>
       body {
         margin: 0;
-        font-family: Arial, "Noto Sans KR", system-ui, sans-serif;
-        background: #f5f7fb;
-        color: #111827;
         display: grid;
         min-height: 100vh;
         place-items: center;
+        background: #f5f7fb;
+        color: #111827;
+        font-family: Arial, "Noto Sans KR", system-ui, sans-serif;
       }
 
       main {
-        width: min(520px, calc(100vw - 32px));
-        padding: 28px;
+        width: min(560px, calc(100vw - 32px));
         border: 1px solid #dfe4ee;
         border-radius: 8px;
         background: #fff;
-        box-shadow: 0 14px 34px rgba(15, 23, 42, 0.08);
+        box-shadow: 0 14px 34px rgb(15 23 42 / 8%);
+        padding: 30px;
       }
 
-      a {
-        color: #3155d4;
-        font-weight: 800;
+      h1 {
+        margin: 0 0 10px;
+        font-size: 28px;
+      }
+
+      p {
+        margin: 0;
+        color: #64748b;
+        line-height: 1.7;
       }
     </style>
   </head>
   <body>
     <main>
-      <h1>29 WITH 테스트 앱으로 이동합니다</h1>
-      <p>자동으로 이동하지 않으면 <a href="./outputs/29with-test-app">여기를 눌러주세요</a>.</p>
+      <h1>29 WITH 운영 앱</h1>
+      <p>
+        기존 GitHub Pages 정적 테스트 화면은 샘플 데이터가 포함되어 있어 더 이상 사용하지 않습니다.
+        실제 운영 데이터는 Vercel에 배포된 Next.js 앱에서 관리됩니다.
+      </p>
     </main>
   </body>
 </html>

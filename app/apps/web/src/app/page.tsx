@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Bell, CheckCircle2, FileCheck2, Gift, HelpCircle, Home, Plus, RefreshCw, RotateCcw, Upload } from "lucide-react";
-import type { DashboardResponse, DreamEvent, EventType, SubmissionWork } from "@/lib/with-types";
+import type { FormEvent, ReactNode } from "react";
+import { Bell, CheckCircle2, FileCheck2, Gift, Home, Plus, RefreshCw, RotateCcw, Upload } from "lucide-react";
+import type { DashboardResponse, DreamApplication, DreamEvent, EventType, SubmissionWork } from "@/lib/with-types";
 import { applicationStatusLabels, eventTypeLabels, matchStatusLabels, statusLabels } from "@/lib/with-types";
 
 type ViewMode = "teacher" | "admin";
@@ -14,7 +15,7 @@ const teacherPages: Array<{ key: TeacherPage; label: string }> = [
   { key: "available", label: "신청 가능한 행사" },
   { key: "works", label: "학생/작품 관리" },
   { key: "benefits", label: "혜택/지원" },
-  { key: "docs", label: "확인서/심사표" },
+  { key: "docs", label: "활동확인서/심사표" },
   { key: "profile", label: "내 프로필" }
 ];
 
@@ -47,12 +48,12 @@ const emptyDashboard: DashboardResponse = {
 };
 
 const teacherSnapshot = {
-  name: "김선생",
-  school: "서울당현초등학교",
-  email: "teacher@school.kr",
-  phone: "010-0000-0000",
-  trust: "성실 참여",
-  affiliation: "서울당현초등학교"
+  name: "",
+  school: "",
+  email: "",
+  phone: "",
+  trust: "일반",
+  affiliation: ""
 };
 
 export default function HomePage() {
@@ -98,7 +99,9 @@ export default function HomePage() {
     setMessage(doneMessage);
   }
 
-  async function handleCreateEvent(formData: FormData) {
+  async function handleCreateEvent(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
     await postJson(
       "/api/events",
       {
@@ -114,8 +117,9 @@ export default function HomePage() {
         targetSubmissionCount: formData.get("targetSubmissionCount"),
         status: "RECRUITING"
       },
-      "새 꿈프 행사를 등록했습니다."
+      "꿈프 행사를 등록했습니다."
     );
+    event.currentTarget.reset();
     setAdminPage("dashboard");
   }
 
@@ -137,7 +141,7 @@ export default function HomePage() {
       await postJson(
         "/api/submissions/analyze",
         { eventId: selectedEvent.id, rows: await readSheetRows(file) },
-        "출품 엑셀 분석이 완료되었습니다."
+        "출품 엑셀 분석을 완료했습니다."
       );
       setAdminPage("submissions");
     } catch (error) {
@@ -155,8 +159,8 @@ export default function HomePage() {
   }
 
   async function handleReset() {
-    if (!confirm("테스트 데이터와 업로드 정보를 초기화할까요?")) return;
-    await postJson("/api/reset", undefined, "테스트 데이터를 초기화했습니다.");
+    if (!confirm("등록된 행사, 쿠폰, 출품 분석 데이터를 모두 초기화할까요?")) return;
+    await postJson("/api/reset", undefined, "운영 데이터를 초기화했습니다.");
     setSelectedEventId("");
   }
 
@@ -198,8 +202,8 @@ export default function HomePage() {
       <section className="content-area">
         <header className="top-bar">
           <div>
-            <p>{mode === "teacher" ? `${teacherSnapshot.school} 담당자 페이지` : "29 Platform 대외협력 관리 시스템"}</p>
-            <h1>{mode === "teacher" ? "영상 꿈나무 양성 프로젝트" : "29 WITH 관리자"}</h1>
+            <p>{mode === "teacher" ? "영상 꿈나무 양성 프로젝트" : "29 Platform 대외협력 관리 시스템"}</p>
+            <h1>{mode === "teacher" ? "선생님 포털" : "29 WITH 관리자"}</h1>
           </div>
           <div className="top-actions">
             {mode === "admin" ? (
@@ -260,23 +264,34 @@ function TeacherPortal({
   data: DashboardResponse;
   setPage: (page: TeacherPage) => void;
 }) {
-  const teacherWorks = data.submissions.filter((work) => normalize(work.affiliationName) === normalize(teacherSnapshot.affiliation));
-  const activeEvents = data.events.filter((event) => event.status !== "CLOSED");
-  const myApplications = buildTeacherApplications(data.events);
+  const teacherApplications = data.applications.filter((application) => {
+    if (!teacherSnapshot.school && !teacherSnapshot.affiliation) return false;
+    return (
+      normalize(application.schoolName) === normalize(teacherSnapshot.school) ||
+      normalize(application.affiliationName) === normalize(teacherSnapshot.affiliation)
+    );
+  });
+  const availableEvents = data.events.filter((event) => event.status === "RECRUITING");
+  const teacherWorks = data.submissions.filter((work) => {
+    if (!teacherSnapshot.affiliation) return false;
+    return normalize(work.affiliationName) === normalize(teacherSnapshot.affiliation);
+  });
 
-  if (page === "available") return <TeacherAvailableEvents events={activeEvents} />;
+  if (page === "available") return <TeacherAvailableEvents events={availableEvents} />;
   if (page === "works") return <TeacherWorks works={teacherWorks} events={data.events} />;
-  if (page === "benefits") return <TeacherBenefits />;
-  if (page === "docs") return <TeacherDocuments works={teacherWorks} />;
-  if (page === "profile") return <TeacherProfile />;
+  if (page === "benefits") return <TeacherBenefits data={data} applications={teacherApplications} />;
+  if (page === "docs") return <TeacherDocuments works={teacherWorks} events={data.events} />;
+  if (page === "profile") return <TeacherProfilePanel />;
 
   return (
     <>
       <section className="teacher-hero">
         <div>
-          <p className="eyebrow">오늘 확인할 것</p>
-          <h2>{teacherSnapshot.name}님, 신청과 출품 상태를 한눈에 확인하세요.</h2>
-          <p>선생님에게 필요한 신청 결과, 학생 출품 확인, 혜택 지급, 활동확인서와 심사표만 모아 보여드립니다.</p>
+          <p className="eyebrow">선생님용 화면</p>
+          <h2>내 신청, 출품 확인, 혜택, 확인서를 한 곳에서 확인합니다.</h2>
+          <p>
+            실제 운영 데이터만 표시합니다. 신청 내역이 없으면 관리자 승인 또는 행사 신청 후 이곳에 표시됩니다.
+          </p>
         </div>
         <button className="primary-button" onClick={() => setPage("available")} type="button">
           신청 가능한 행사 보기
@@ -284,38 +299,23 @@ function TeacherPortal({
       </section>
 
       <section className="teacher-status-grid">
-        <TeacherStatusCard icon={<Home size={20} />} label="학교" value={teacherSnapshot.school} note="출품 소속명과 정확히 일치해야 합니다." />
-        <TeacherStatusCard icon={<FileCheck2 size={20} />} label="확인된 출품" value={`${teacherWorks.length}편`} note={teacherWorks.length ? "관리자가 올린 출품 엑셀 기준입니다." : "아직 확인된 작품이 없습니다."} />
-        <TeacherStatusCard icon={<Gift size={20} />} label="참여 상태" value={teacherSnapshot.trust} note="다음 선정 때 우선 검토 대상입니다." />
-        <TeacherStatusCard icon={<Bell size={20} />} label="알림" value="2건" note="확인서와 안내 메일 상태를 알려드립니다." />
+        <TeacherStatusCard icon={<Home size={19} />} label="내 신청" value={`${teacherApplications.length}건`} text="접수 또는 선정된 꿈프 신청" />
+        <TeacherStatusCard icon={<CheckCircle2 size={19} />} label="출품 확인" value={`${teacherWorks.length}편`} text="관리자 엑셀 분석 후 표시" />
+        <TeacherStatusCard icon={<Gift size={19} />} label="혜택 상태" value={teacherSnapshot.trust} text="패널티/베네핏은 참여 이력 기준" />
+        <TeacherStatusCard icon={<Bell size={19} />} label="알림" value={`${data.notices.length}건`} text="발급, 요청 답변, 공지" />
       </section>
 
       <section className="panel teacher-panel">
-        <SectionTitle eyebrow="내 신청 현황" title="진행 중인 꿈프" />
-        <div className="teacher-application-list">
-          {myApplications.length === 0 ? (
-            <EmptyState title="현재 신청 내역이 없습니다" description="모집 중인 행사를 확인하고 꿈프 참여를 신청해 주세요." />
-          ) : (
-            myApplications.map((application) => (
-              <article className="teacher-application-card" key={application.event.id}>
-                <div>
-                  <span className="status-pill success">{application.status}</span>
-                  <h3>{application.event.title}</h3>
-                  <p>{application.event.contestPeriod || "기간 미입력"} · 예상 출품 {application.expectedCount}편</p>
-                </div>
-                <button className="ghost-button" onClick={() => setPage("works")} type="button">
-                  출품 확인
-                </button>
-              </article>
-            ))
-          )}
-        </div>
-      </section>
-
-      <section className="teacher-card-grid">
-        <TeacherActionCard title="신청이 정상 접수됐나요?" text="행사별 신청 상태와 선정 여부를 확인합니다." action="신청 행사 보기" onClick={() => setPage("available")} />
-        <TeacherActionCard title="학생 출품이 잘 잡혔나요?" text="엑셀 매칭 결과에서 우리 학교 작품만 정리해 보여드립니다." action="작품 확인" onClick={() => setPage("works")} />
-        <TeacherActionCard title="필요한 문서가 준비됐나요?" text="활동확인서와 심사표 발급 상태, 수정 요청을 확인합니다." action="문서 보기" onClick={() => setPage("docs")} />
+        <SectionHead title="내 꿈프 신청 현황" text="현재 로그인한 선생님의 실제 신청 내역만 표시됩니다." />
+        {teacherApplications.length ? (
+          <div className="teacher-application-list">
+            {teacherApplications.map((application) => (
+              <TeacherApplicationCard key={application.id} application={application} events={data.events} />
+            ))}
+          </div>
+        ) : (
+          <EmptyState title="아직 신청 내역이 없습니다." text="모집중인 행사를 선택해 신청하면 이곳에 진행 상태가 표시됩니다." />
+        )}
       </section>
     </>
   );
@@ -324,32 +324,31 @@ function TeacherPortal({
 function TeacherAvailableEvents({ events }: { events: DreamEvent[] }) {
   return (
     <section className="panel teacher-panel">
-      <SectionTitle eyebrow="신청 가능한 행사" title="참여할 꿈프를 선택하세요" />
-      {events.length === 0 ? (
-        <EmptyState title="현재 신청 가능한 행사가 없습니다" description="관리자가 모집을 시작하면 이곳에 행사 정보가 표시됩니다." />
-      ) : (
+      <SectionHead title="신청 가능한 행사" text="관리자가 등록하고 모집중으로 둔 꿈프 행사만 표시됩니다." />
+      {events.length ? (
         <div className="teacher-event-grid">
           {events.map((event) => (
             <article className="teacher-event-card" key={event.id}>
-              {event.posterUrl ? <img alt="" src={event.posterUrl} /> : <div className="poster-placeholder">29</div>}
+              {event.posterUrl ? <img alt={`${event.title} 포스터`} src={event.posterUrl} /> : <div className="poster-placeholder">29</div>}
               <div>
-                <span className="status-pill success">{statusLabels[event.status]}</span>
+                <span className="status-pill success">{eventTypeLabels[event.eventType]}</span>
                 <h3>{event.title}</h3>
                 <dl>
-                  <div><dt>유형</dt><dd>{eventTypeLabels[event.eventType]}</dd></div>
                   <div><dt>기간</dt><dd>{event.contestPeriod || "미입력"}</dd></div>
+                  <div><dt>상금</dt><dd>{event.prize || "미입력"}</dd></div>
                   <div><dt>주제</dt><dd>{event.topic || "미입력"}</dd></div>
-                  <div><dt>총상금</dt><dd>{event.prize || "미입력"}</dd></div>
                 </dl>
-                <p className="event-notice">{event.notice || "신청 전 학교명과 출품 소속명을 정확히 확인해 주세요."}</p>
+                <p className="event-notice">{event.notice || "관리자가 등록한 안내사항이 없습니다."}</p>
                 <div className="button-row">
-                  <button className="ghost-button" type="button">자세히 보기</button>
+                  {event.homepageUrl ? <a className="ghost-button" href={event.homepageUrl} rel="noreferrer" target="_blank">홈페이지</a> : null}
                   <button className="primary-button" type="button">신청하기</button>
                 </div>
               </div>
             </article>
           ))}
         </div>
+      ) : (
+        <EmptyState title="현재 모집중인 행사가 없습니다." text="관리자가 행사 운영에서 새 꿈프를 등록하면 이곳에 표시됩니다." />
       )}
     </section>
   );
@@ -358,176 +357,186 @@ function TeacherAvailableEvents({ events }: { events: DreamEvent[] }) {
 function TeacherWorks({ works, events }: { works: SubmissionWork[]; events: DreamEvent[] }) {
   return (
     <section className="panel teacher-panel">
-      <SectionTitle eyebrow="학생/작품 관리" title="우리 학교 출품 현황" />
-      <p className="muted">관리자가 업로드한 출품 엑셀에서 출품 소속명과 학교명이 일치하는 작품만 표시합니다.</p>
-      {works.length === 0 ? (
-        <EmptyState title="확인된 출품작이 없습니다" description="출품 직후에는 반영까지 시간이 걸릴 수 있습니다. 문제가 있으면 문의하기로 확인 요청을 보내 주세요." />
-      ) : (
-        <DataTable
-          headers={["행사", "순위", "작품명", "감독/출품자", "점수", "본심", "URL"]}
-          rows={works.map((work) => [
-            events.find((event) => event.id === work.eventId)?.title ?? "-",
-            work.rank?.toString() ?? "-",
-            work.title || "-",
-            work.participantName || "-",
-            work.preliminaryScore?.toString() ?? "-",
-            work.finalRoundStatus === "ADVANCED" ? "진출" : "-",
-            work.submissionUrl ? "있음" : "없음"
-          ])}
-        />
-      )}
-      <button className="ghost-button panel-action" type="button">
-        <HelpCircle size={16} /> 출품 확인 문의
-      </button>
+      <SectionHead title="학생/작품 관리" text="출품 엑셀 분석 후 내 학교와 매칭된 작품이 표시됩니다." />
+      <WorksTable works={works} events={events} emptyText="아직 확인된 출품작이 없습니다." />
     </section>
   );
 }
 
-function TeacherBenefits() {
+function TeacherBenefits({ data, applications }: { data: DashboardResponse; applications: DreamApplication[] }) {
   return (
     <section className="panel teacher-panel">
-      <SectionTitle eyebrow="혜택/지원" title="받을 혜택과 지급 상태" />
-      <div className="teacher-card-grid">
-        <TeacherInfoCard title="한국경제신문 구독권" value="선정 후 지급" text="쿠폰이 배정되면 번호와 사용 상태가 이곳에 표시됩니다." />
-        <TeacherInfoCard title="간식비" value="지급일 입력 대기" text="관리자가 지급 예정일을 입력하면 선생님 화면에 바로 표시됩니다." />
-        <TeacherInfoCard title="참여 이력" value="성실 참여" text="향후 선착순 선정과 활동 우수 학교 검토에 반영됩니다." />
+      <SectionHead title="혜택/지원" text="선정 후 지급되는 쿠폰, 간식비 안내, 운영 알림을 확인합니다." />
+      <div className="metric-grid compact">
+        <MetricCard label="내 선정 신청" value={`${applications.filter((item) => item.status === "SELECTED").length}건`} />
+        <MetricCard label="미사용 쿠폰 재고" value={`${data.stats.unusedCouponCount}개`} />
+        <MetricCard label="간식비 지급 예정" value="관리자 입력 대기" />
       </div>
+      <EmptyState title="지급 내역은 선정 후 표시됩니다." text="쿠폰 번호, 간식비 지급 예정일, 관리자 안내 메일을 이곳에서 확인할 수 있습니다." />
     </section>
   );
 }
 
-function TeacherDocuments({ works }: { works: SubmissionWork[] }) {
+function TeacherDocuments({ works, events }: { works: SubmissionWork[]; events: DreamEvent[] }) {
   return (
     <section className="panel teacher-panel">
-      <SectionTitle eyebrow="확인서/심사표" title="발급 문서 확인" />
-      <div className="teacher-card-grid">
-        <TeacherInfoCard title="활동확인서" value={works.length ? "승인 대기" : "출품 확인 전"} text="관리자가 최종 출품 리스트를 승인하면 PDF 다운로드가 열립니다." />
-        <TeacherInfoCard title="심사표" value="수상 발표 후 공개" text="예심점수, 학교 내 순위, 본심 진출 여부를 확인합니다." />
-        <TeacherInfoCard title="수정 요청" value="가능" text="이름, 작품명, 학교명 표기가 다르면 수정 요청을 보낼 수 있습니다." />
-      </div>
-      <button className="ghost-button panel-action" type="button">수정 요청하기</button>
+      <SectionHead title="활동확인서/심사표" text="관리자 승인 후 다운로드 가능한 문서가 표시됩니다." />
+      <WorksTable works={works} events={events} emptyText="발급 가능한 문서가 아직 없습니다." />
     </section>
   );
 }
 
-function TeacherProfile() {
+function TeacherProfilePanel() {
   return (
     <section className="panel teacher-panel">
-      <SectionTitle eyebrow="내 프로필" title="학교와 담당자 정보" />
+      <SectionHead title="내 프로필" text="학교명과 출품 소속명은 출품 매칭 기준이므로 변경 요청으로 관리합니다." />
       <div className="profile-grid">
-        <TeacherInfoCard title="학교명" value={teacherSnapshot.school} text="변경이 필요하면 변경 요청을 보내 주세요." />
-        <TeacherInfoCard title="출품 소속명" value={teacherSnapshot.affiliation} text="출품 시 입력하는 소속명/팀명과 정확히 같아야 합니다." />
-        <TeacherInfoCard title="연락처" value={teacherSnapshot.phone} text={teacherSnapshot.email} />
-        <TeacherInfoCard title="선생님 증빙" value="등록 필요" text="재직증명서, 교원 확인증 등 증빙 파일을 등록합니다." />
+        <TeacherInfoCard label="학교명" value="미등록" text="회원가입 후 최초 신청 시 입력" />
+        <TeacherInfoCard label="출품 소속명/팀명" value="미등록" text="엑셀 소속/팀명과 완전 일치 필요" />
+        <TeacherInfoCard label="연락처" value="미등록" text="업무용 이메일과 연락처를 권장" />
+        <TeacherInfoCard label="교사 증빙" value="미등록" text="선생님 확인증 또는 재직 확인 자료" />
       </div>
-      <div className="button-row panel-action">
-        <button className="ghost-button" type="button">수정하기</button>
+      <div className="panel-action">
+        <button className="ghost-button" type="button">프로필 수정</button>
         <button className="ghost-button" type="button">학교명 변경 요청</button>
       </div>
     </section>
   );
 }
 
-function AdminDashboard({ data, selectedEvent, setPage }: { data: DashboardResponse; selectedEvent?: DreamEvent; setPage: (page: AdminPage) => void }) {
+function AdminDashboard({
+  data,
+  selectedEvent,
+  setPage
+}: {
+  data: DashboardResponse;
+  selectedEvent?: DreamEvent;
+  setPage: (page: AdminPage) => void;
+}) {
   return (
     <>
       <section className="metric-grid">
-        <Metric label="진행 꿈프" value={`${data.stats.activeEventCount}개`} />
-        <Metric label="선정 학교" value={`${data.stats.selectedSchoolCount}곳`} />
-        <Metric label="출품 확인" value={`${data.stats.confirmedSubmissionCount}/${data.stats.expectedSubmissionCount}편`} />
-        <Metric label="확인 필요" value={`${data.stats.reviewRequiredCount}건`} danger />
+        <MetricCard label="운영 프로젝트" value={`${data.stats.activeEventCount}개`} />
+        <MetricCard label="선정 학교" value={`${data.stats.selectedSchoolCount}개`} />
+        <MetricCard label="출품 확인" value={`${data.stats.confirmedSubmissionCount}편`} />
+        <MetricCard label="확인 필요" value={`${data.stats.reviewRequiredCount}건`} danger />
       </section>
+
       <section className="panel">
-        <div className="section-head">
-          <div>
-            <p className="eyebrow">행사별 현황</p>
-            <h2>진행 중인 꿈프</h2>
-          </div>
-          <button className="primary-button" onClick={() => setPage("events")} type="button">
-            <Plus size={16} /> 새 행사 등록
-          </button>
-        </div>
-        {data.events.length === 0 ? (
-          <EmptyState title="등록된 꿈프가 없습니다" description="행사를 등록하면 신청, 출품 확인, 쿠폰, 확인서 흐름을 행사별로 관리할 수 있습니다." />
-        ) : (
+        <SectionHead title="행사별 현황" text="실제 등록된 꿈프 행사만 표시됩니다." />
+        {data.events.length ? (
           <div className="event-list">
             {data.events.map((event) => (
-              <article className="event-row" key={event.id}>
-                <span>
+              <article className={`event-row ${event.id === selectedEvent?.id ? "active" : ""}`} key={event.id}>
+                <div>
                   <strong>{event.title}</strong>
-                  <small>{eventTypeLabels[event.eventType]} · {statusLabels[event.status]} · {event.contestPeriod || "기간 미입력"}</small>
-                </span>
-                <span>{event.targetSubmissionCount || 0}편 목표</span>
+                  <small>{eventTypeLabels[event.eventType]} · {statusLabels[event.status]} · 목표 {event.targetSubmissionCount || 0}편</small>
+                </div>
+                <span className="status-pill success">{statusLabels[event.status]}</span>
               </article>
             ))}
           </div>
+        ) : (
+          <EmptyState title="등록된 꿈프 행사가 없습니다." text="행사 운영에서 새 행사를 등록하면 대시보드가 채워집니다." />
         )}
-      </section>
-      <section className="panel">
-        <SectionTitle eyebrow="선택 꿈프" title={selectedEvent?.title ?? "선택된 꿈프 없음"} />
-        <div className="action-grid">
-          <ActionCard title="출품 엑셀 매칭" text="학교명과 소속/팀명을 비교해 자동 확인, 확인 필요, 미매칭으로 분류합니다." />
-          <ActionCard title="쿠폰 업로드" text="헤더가 없는 쿠폰 파일도 모든 셀에서 쿠폰 번호를 인식합니다." />
-          <ActionCard title="활동확인서" text="템플릿 파일을 저장하고 추후 승인 후 PDF 발급 흐름으로 연결합니다." />
+        <div className="panel-action">
+          <button className="primary-button" onClick={() => setPage("events")} type="button">
+            <Plus size={16} /> 새 행사 등록
+          </button>
+          <button className="ghost-button" onClick={() => setPage("submissions")} type="button">출품 엑셀 분석</button>
         </div>
+      </section>
+
+      <section className="panel">
+        <SectionHead title="관리자 작업함" text="최근 처리해야 할 운영 알림입니다." />
+        {data.notices.length ? (
+          <div className="compact-list">
+            {data.notices.slice(0, 8).map((notice) => (
+              <div className="compact-row" key={notice.id}>
+                <div>
+                  <strong>{notice.type}</strong>
+                  <small>{notice.message}</small>
+                </div>
+                <span>{new Date(notice.createdAt).toLocaleString("ko-KR")}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyState title="처리할 알림이 없습니다." text="행사 등록, 엑셀 업로드, 확인서 템플릿 저장 이력이 생기면 표시됩니다." />
+        )}
       </section>
     </>
   );
 }
 
-function EventsPage({ data, selectedEvent, onCreateEvent }: { data: DashboardResponse; selectedEvent?: DreamEvent; onCreateEvent: (formData: FormData) => Promise<void> }) {
+function EventsPage({
+  data,
+  selectedEvent,
+  onCreateEvent
+}: {
+  data: DashboardResponse;
+  selectedEvent?: DreamEvent;
+  onCreateEvent: (event: FormEvent<HTMLFormElement>) => void;
+}) {
   return (
     <section className="panel">
-      <SectionTitle eyebrow="행사 운영" title="새 꿈프 등록" />
-      <form className="form-grid" onSubmit={(event) => { event.preventDefault(); void onCreateEvent(new FormData(event.currentTarget)); event.currentTarget.reset(); }}>
+      <SectionHead title="행사 운영" text="선생님 화면에 노출될 모집중 행사 정보를 등록합니다." />
+      <form className="form-grid" onSubmit={onCreateEvent}>
         <label>행사명<input name="title" required placeholder="예: 제13회 박카스 29초영화제" /></label>
-        <label>유형<select name="eventType" required defaultValue={"TWENTY_NINE_SECONDS" satisfies EventType}><option value="TWENTY_NINE_SECONDS">29초영화제</option><option value="SHORTFORM_KING">29역숏폼왕</option></select></label>
+        <label>행사 유형<select name="eventType" defaultValue={"TWENTY_NINE_SECONDS" satisfies EventType}><option value="TWENTY_NINE_SECONDS">29초영화제</option><option value="SHORTFORM_KING">29역숏폼왕</option></select></label>
         <label>공모기간<input name="contestPeriod" placeholder="2026.04.08 - 2026.05.21" /></label>
-        <label>총상금<input name="prize" placeholder="총상금 2,000만원" /></label>
-        <label>주제<input name="topic" placeholder="행사 주제" /></label>
-        <label>목표 작품 수<input min="0" name="targetSubmissionCount" type="number" /></label>
-        <label>포스터 URL<input name="posterUrl" /></label>
-        <label>홈페이지 URL<input name="homepageUrl" /></label>
-        <label>출품 URL<input name="submissionUrl" /></label>
-        <label className="wide">안내사항<textarea name="notice" rows={4} /></label>
-        <div className="form-actions"><button className="primary-button" type="submit">등록</button></div>
+        <label>총상금/혜택<input name="prize" placeholder="총상금 또는 혜택" /></label>
+        <label>목표 작품 수<input name="targetSubmissionCount" min="0" type="number" /></label>
+        <label>포스터 URL<input name="posterUrl" placeholder="https://..." /></label>
+        <label className="wide">주제<input name="topic" placeholder="행사 주제" /></label>
+        <label>홈페이지 URL<input name="homepageUrl" placeholder="https://..." /></label>
+        <label>출품 URL<input name="submissionUrl" placeholder="https://..." /></label>
+        <label className="wide">안내사항<textarea name="notice" rows={4} placeholder="선생님에게 보여줄 주요 안내" /></label>
+        <div className="form-actions"><button className="primary-button" type="submit">행사 등록</button></div>
       </form>
+
       <div className="sub-panel">
-        <h3>등록된 꿈프</h3>
-        {data.events.length === 0 ? <p className="muted">아직 등록된 행사가 없습니다.</p> : null}
-        {data.events.map((event) => (
-          <div className={`compact-row ${selectedEvent?.id === event.id ? "active" : ""}`} key={event.id}>
-            <strong>{event.title}</strong>
-            <span>{eventTypeLabels[event.eventType]} · {statusLabels[event.status]}</span>
+        <h3>등록된 행사</h3>
+        {data.events.length ? (
+          <div className="event-list">
+            {data.events.map((event) => (
+              <div className={`event-row ${selectedEvent?.id === event.id ? "active" : ""}`} key={event.id}>
+                <div><strong>{event.title}</strong><small>{eventTypeLabels[event.eventType]} · {event.contestPeriod || "기간 미입력"}</small></div>
+                <span className="status-pill success">{statusLabels[event.status]}</span>
+              </div>
+            ))}
           </div>
-        ))}
+        ) : (
+          <EmptyState title="아직 등록된 행사가 없습니다." text="첫 실제 꿈프 행사를 등록해 주세요." />
+        )}
       </div>
     </section>
   );
 }
 
-function SubmissionsPage({ data, selectedEvent, onUpload }: { data: DashboardResponse; selectedEvent?: DreamEvent; onUpload: (file?: File) => void }) {
-  const works = data.submissions.filter((work) => !selectedEvent || work.eventId === selectedEvent.id);
+function SubmissionsPage({
+  data,
+  selectedEvent,
+  onUpload
+}: {
+  data: DashboardResponse;
+  selectedEvent?: DreamEvent;
+  onUpload: (file?: File) => void;
+}) {
+  const works = selectedEvent ? data.submissions.filter((work) => work.eventId === selectedEvent.id) : [];
   return (
     <section className="panel">
-      <SectionTitle eyebrow="출품 확인" title={selectedEvent ? `${selectedEvent.title} 출품 엑셀 업로드` : "출품 엑셀 업로드"} />
-      <UploadInput accept=".xlsx,.xls,.csv,.txt" label="출품 엑셀 업로드" onFile={onUpload} />
-      <p className="muted">필수 열: 소속 또는 팀명, 작품명 또는 작품제목, 감독 또는 출품자. URL 열이 있으면 함께 저장됩니다.</p>
-      {works.length === 0 ? (
-        <EmptyState title="분석된 출품작이 없습니다" description="관리자 페이지에서 내려받은 출품 엑셀을 업로드해 주세요." />
+      <SectionHead title="출품 확인" text="관리자가 업로드한 출품 엑셀만 분석합니다. 샘플 데이터는 사용하지 않습니다." />
+      {selectedEvent ? (
+        <>
+          <div className="event-row active">
+            <div><strong>{selectedEvent.title}</strong><small>{eventTypeLabels[selectedEvent.eventType]} · 출품 소속명/팀명 기준 매칭</small></div>
+            <UploadButton label="출품 엑셀 업로드" accept=".xlsx,.xls,.csv" onFile={onUpload} />
+          </div>
+          <WorksTable works={works} events={data.events} emptyText="아직 업로드된 출품 엑셀이 없습니다." />
+        </>
       ) : (
-        <DataTable
-          headers={["매칭", "소속/팀명", "작품명", "감독/출품자", "점수", "본심", "사유"]}
-          rows={works.map((work) => [
-            matchStatusLabels[work.matchStatus],
-            work.affiliationName || "-",
-            work.title || "-",
-            work.participantName || "-",
-            work.preliminaryScore?.toString() ?? "-",
-            work.finalRoundStatus === "ADVANCED" ? "진출" : "-",
-            work.matchReason
-          ])}
-        />
+        <EmptyState title="먼저 행사를 등록해 주세요." text="행사 운영에서 꿈프 행사를 만든 뒤 출품 엑셀을 업로드할 수 있습니다." />
       )}
     </section>
   );
@@ -536,13 +545,18 @@ function SubmissionsPage({ data, selectedEvent, onUpload }: { data: DashboardRes
 function BenefitsPage({ data, onCouponUpload }: { data: DashboardResponse; onCouponUpload: (file?: File) => void }) {
   return (
     <section className="panel">
-      <SectionTitle eyebrow="혜택/지원" title="구독권 쿠폰 관리" />
-      <UploadInput accept=".xlsx,.xls,.csv,.txt" label="쿠폰 엑셀 업로드" onFile={onCouponUpload} />
+      <SectionHead title="혜택/지원" text="한국경제신문 구독권 쿠폰 엑셀을 업로드해 재고를 관리합니다." />
+      <UploadButton label="쿠폰 엑셀 업로드" accept=".xlsx,.xls,.csv" onFile={onCouponUpload} />
       <div className="metric-grid compact">
-        <Metric label="전체 쿠폰" value={`${data.coupons.length}개`} />
-        <Metric label="미사용" value={`${data.stats.unusedCouponCount}개`} />
-        <Metric label="지급완료" value={`${data.coupons.filter((coupon) => coupon.status === "ASSIGNED").length}개`} />
+        <MetricCard label="총 쿠폰" value={`${data.coupons.length}개`} />
+        <MetricCard label="미사용" value={`${data.stats.unusedCouponCount}개`} />
+        <MetricCard label="지급완료" value={`${data.coupons.filter((coupon) => coupon.status === "ASSIGNED").length}개`} />
       </div>
+      {data.coupons.length ? (
+        <div className="table-wrap"><table><thead><tr><th>쿠폰번호</th><th>상태</th><th>업로드일</th></tr></thead><tbody>{data.coupons.map((coupon) => <tr key={coupon.id}><td>{coupon.couponNumber}</td><td>{coupon.status === "UNUSED" ? "미사용" : "지급완료"}</td><td>{new Date(coupon.uploadedAt).toLocaleString("ko-KR")}</td></tr>)}</tbody></table></div>
+      ) : (
+        <EmptyState title="업로드된 쿠폰이 없습니다." text="쿠폰 번호가 들어 있는 엑셀을 업로드하면 자동으로 번호를 인식합니다." />
+      )}
     </section>
   );
 }
@@ -550,16 +564,19 @@ function BenefitsPage({ data, onCouponUpload }: { data: DashboardResponse; onCou
 function DocumentsPage({ data, onTemplateUpload }: { data: DashboardResponse; onTemplateUpload: (file?: File) => void }) {
   return (
     <section className="panel">
-      <SectionTitle eyebrow="활동확인서" title="템플릿 관리" />
-      <UploadInput accept=".png,.jpg,.jpeg,.pdf" label="확인서 레퍼런스 업로드" onFile={onTemplateUpload} />
-      {data.certificateTemplates.length === 0 ? (
-        <EmptyState title="등록된 템플릿이 없습니다" description="활동확인서 디자인 파일을 한 번 업로드해 주세요." />
-      ) : (
+      <SectionHead title="활동확인서" text="관리자가 업로드한 템플릿을 저장하고 발급 준비 상태를 확인합니다." />
+      <UploadButton label="확인서 템플릿 업로드" accept=".png,.jpg,.jpeg,.pdf" onFile={onTemplateUpload} />
+      {data.certificateTemplates.length ? (
         <div className="compact-list">
           {data.certificateTemplates.map((template) => (
-            <div className="compact-row" key={template.id}><strong>{template.fileName}</strong><span>저장됨</span></div>
+            <div className="compact-row" key={template.id}>
+              <strong>{template.fileName}</strong>
+              <span>{new Date(template.uploadedAt).toLocaleString("ko-KR")}</span>
+            </div>
           ))}
         </div>
+      ) : (
+        <EmptyState title="등록된 활동확인서 템플릿이 없습니다." text="최종 디자인 파일을 업로드하면 발급 기준 템플릿으로 저장됩니다." />
       )}
     </section>
   );
@@ -568,12 +585,8 @@ function DocumentsPage({ data, onTemplateUpload }: { data: DashboardResponse; on
 function MailsPage() {
   return (
     <section className="panel">
-      <SectionTitle eyebrow="메일/공지" title="발송 전 확인" />
-      <div className="action-grid">
-        <ActionCard title="D-day 안내 메일" text="D-14, D-10, D-5, D-1 메일 문구와 발송 시간을 관리자가 확인합니다." />
-        <ActionCard title="선정 안내" text="선정 상태, 출품 URL, 쿠폰번호, 담당자 페이지 안내를 포함합니다." />
-        <ActionCard title="발급 알림" text="확인서와 심사표가 준비되면 선생님에게 안내합니다." />
-      </div>
+      <SectionHead title="메일/공지" text="D-14, D-10, D-5, D-1 안내와 발송 전 검수 기능이 들어갈 영역입니다." />
+      <EmptyState title="메일 템플릿은 아직 등록되지 않았습니다." text="운영 메일은 발송 전 관리자 확인/수정 후 예약 발송하는 구조로 확장합니다." />
     </section>
   );
 }
@@ -581,137 +594,136 @@ function MailsPage() {
 function HistoryPage({ data }: { data: DashboardResponse }) {
   return (
     <section className="panel">
-      <SectionTitle eyebrow="히스토리" title="최근 작업 이력" />
-      {data.notices.length === 0 ? (
-        <EmptyState title="기록된 작업이 없습니다" description="행사 등록, 업로드, 분석 작업이 이곳에 남습니다." />
-      ) : (
+      <SectionHead title="히스토리" text="모든 운영 변경과 업로드 기록을 보관합니다." />
+      {data.notices.length ? (
         <div className="compact-list">
           {data.notices.map((notice) => (
-            <div className="compact-row" key={notice.id}><strong>{notice.type}</strong><span>{notice.message}</span></div>
+            <div className="compact-row" key={notice.id}>
+              <div><strong>{notice.type}</strong><small>{notice.message}</small></div>
+              <span>{new Date(notice.createdAt).toLocaleString("ko-KR")}</span>
+            </div>
           ))}
         </div>
+      ) : (
+        <EmptyState title="아직 히스토리가 없습니다." text="운영 작업이 발생하면 자동으로 기록됩니다." />
       )}
     </section>
   );
 }
 
-function SectionTitle({ eyebrow, title }: { eyebrow: string; title: string }) {
-  return (
-    <div className="section-head">
-      <div>
-        <p className="eyebrow">{eyebrow}</p>
-        <h2>{title}</h2>
-      </div>
-    </div>
-  );
-}
-
-function TeacherStatusCard({ icon, label, value, note }: { icon: React.ReactNode; label: string; value: string; note: string }) {
-  return <article className="teacher-status-card"><div className="teacher-icon">{icon}</div><span>{label}</span><strong>{value}</strong><p>{note}</p></article>;
-}
-
-function TeacherActionCard({ title, text, action, onClick }: { title: string; text: string; action: string; onClick: () => void }) {
-  return <article className="teacher-action-card"><h3>{title}</h3><p>{text}</p><button className="ghost-button" onClick={onClick} type="button">{action}</button></article>;
-}
-
-function TeacherInfoCard({ title, value, text }: { title: string; value: string; text: string }) {
-  return <article className="teacher-info-card"><span>{title}</span><strong>{value}</strong><p>{text}</p></article>;
-}
-
-function Metric({ label, value, danger }: { label: string; value: string; danger?: boolean }) {
-  return <article className="metric-card"><span>{label}</span><strong className={danger ? "danger-text" : ""}>{value}</strong></article>;
-}
-
-function ActionCard({ title, text }: { title: string; text: string }) {
-  return <article className="action-card"><div className="action-icon"><CheckCircle2 size={18} /></div><div><strong>{title}</strong><p>{text}</p></div></article>;
-}
-
-function EmptyState({ title, description }: { title: string; description: string }) {
-  return <div className="empty-state"><strong>{title}</strong><p>{description}</p></div>;
-}
-
-function DataTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
+function WorksTable({ works, events, emptyText }: { works: SubmissionWork[]; events: DreamEvent[]; emptyText: string }) {
+  if (!works.length) return <EmptyState title={emptyText} text="실제 엑셀 업로드 또는 관리자 승인 후 데이터가 표시됩니다." />;
   return (
     <div className="table-wrap">
       <table>
-        <thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}</tr></thead>
-        <tbody>{rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={`${rowIndex}-${cellIndex}`}>{cell}</td>)}</tr>)}</tbody>
+        <thead>
+          <tr>
+            <th>행사</th>
+            <th>소속/팀명</th>
+            <th>작품명</th>
+            <th>감독/출품자</th>
+            <th>평점</th>
+            <th>순위</th>
+            <th>본심</th>
+            <th>매칭</th>
+          </tr>
+        </thead>
+        <tbody>
+          {works.map((work) => (
+            <tr key={work.id}>
+              <td>{events.find((event) => event.id === work.eventId)?.title ?? "-"}</td>
+              <td>{work.affiliationName || "-"}</td>
+              <td>{work.submissionUrl ? <a href={work.submissionUrl} rel="noreferrer" target="_blank">{work.title || "작품 링크"}</a> : work.title || "-"}</td>
+              <td>{work.participantName || "-"}</td>
+              <td>{work.preliminaryScore ?? "-"}</td>
+              <td>{work.rank ?? "-"}</td>
+              <td>{work.finalRoundStatus === "ADVANCED" ? "진출" : work.finalRoundStatus === "NOT_ADVANCED" ? "미진출" : "-"}</td>
+              <td><span className={work.matchStatus === "NEEDS_REVIEW" ? "danger-text" : ""}>{matchStatusLabels[work.matchStatus]}</span></td>
+            </tr>
+          ))}
+        </tbody>
       </table>
     </div>
   );
 }
 
-function UploadInput({ accept, label, onFile }: { accept: string; label: string; onFile: (file?: File) => void }) {
+function TeacherStatusCard({ icon, label, value, text }: { icon: ReactNode; label: string; value: string; text: string }) {
+  return <article className="teacher-status-card"><div className="teacher-icon">{icon}</div><span>{label}</span><strong>{value}</strong><p>{text}</p></article>;
+}
+
+function TeacherInfoCard({ label, value, text }: { label: string; value: string; text: string }) {
+  return <article className="teacher-info-card"><span>{label}</span><strong>{value}</strong><p>{text}</p></article>;
+}
+
+function TeacherApplicationCard({ application, events }: { application: DreamApplication; events: DreamEvent[] }) {
+  const event = events.find((item) => item.id === application.eventId);
+  return (
+    <article className="teacher-application-card">
+      <div>
+        <h3>{event?.title ?? "삭제된 행사"}</h3>
+        <p>{application.schoolName} · {application.affiliationName} · 예상 {application.expectedSubmissionCount}편</p>
+      </div>
+      <span className="status-pill success">{applicationStatusLabels[application.status]}</span>
+    </article>
+  );
+}
+
+function MetricCard({ label, value, danger = false }: { label: string; value: string; danger?: boolean }) {
+  return <article className="metric-card"><span>{label}</span><strong className={danger ? "danger-text" : ""}>{value}</strong></article>;
+}
+
+function SectionHead({ title, text }: { title: string; text: string }) {
+  return <div className="section-head"><div><h2>{title}</h2><p className="muted">{text}</p></div></div>;
+}
+
+function EmptyState({ title, text }: { title: string; text: string }) {
+  return <div className="empty-state"><strong>{title}</strong><p>{text}</p></div>;
+}
+
+function UploadButton({ label, accept, onFile }: { label: string; accept: string; onFile: (file?: File) => void }) {
   return (
     <label className="upload-button">
       <Upload size={16} /> {label}
-      <input accept={accept} hidden onChange={(event) => onFile(event.target.files?.[0])} type="file" />
+      <input accept={accept} hidden type="file" onChange={(event) => onFile(event.target.files?.[0])} />
     </label>
   );
 }
 
-function buildTeacherApplications(events: DreamEvent[]): Array<{ event: DreamEvent; status: string; expectedCount: number }> {
-  return events.slice(0, 2).map((event, index) => ({
-    event,
-    status: index === 0 ? applicationStatusLabels.SELECTED : applicationStatusLabels.SUBMITTED,
-    expectedCount: index === 0 ? 8 : 5
-  }));
-}
-
-function normalize(value: string) {
-  return value.replace(/\s/g, "");
-}
-
-async function readErrorMessage(response: Response) {
-  try {
-    const data = await response.json();
-    return data.message || "작업을 완료하지 못했습니다.";
-  } catch {
-    return "작업을 완료하지 못했습니다.";
-  }
-}
-
-async function readSheetRows(file: File) {
-  const table = await readSheetTable(file);
-  const headerIndex = table.findIndex((row) => row.some((cell) => /소속|소속명|팀명|작품명|작품제목|감독|출품자/.test(String(cell))));
-  if (headerIndex < 0) throw new Error("엑셀에서 소속/팀명, 작품명, 감독/출품자 열을 찾지 못했습니다.");
-  const headers = table[headerIndex].map((cell) => String(cell ?? "").trim());
-  return table.slice(headerIndex + 1).map((row) => {
-    const record: Record<string, string | number | undefined> = {};
-    headers.forEach((header, index) => {
-      if (header) record[header] = row[index] as string | number | undefined;
-    });
-    return record;
-  });
+async function readSheetRows(file: File): Promise<Array<Record<string, string | number | undefined>>> {
+  const XLSX = await import("xlsx");
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, { type: "array" });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  return XLSX.utils.sheet_to_json<Record<string, string | number | undefined>>(sheet, { defval: "" });
 }
 
 async function readSheetCellValues(file: File) {
-  const table = await readSheetTable(file);
-  return table.flat().filter((value) => value != null && String(value).trim());
-}
-
-async function readSheetTable(file: File): Promise<Array<Array<string | number | undefined>>> {
-  const buffer = await file.arrayBuffer();
-  const firstText = new TextDecoder("utf-8", { fatal: false }).decode(buffer.slice(0, 1024));
-  if (/^\s*<html/i.test(firstText) && /sheet\d+\.htm/i.test(firstText)) {
-    throw new Error("이 .xls 파일은 여러 HTML 조각을 참조하는 형식입니다. 엑셀에서 .xlsx 또는 .csv로 다시 저장한 뒤 업로드해 주세요.");
-  }
-  if (file.name.toLowerCase().endsWith(".csv") || file.name.toLowerCase().endsWith(".txt")) {
-    const text = new TextDecoder("utf-8", { fatal: false }).decode(buffer);
-    return text.split(/\r?\n/).map((line) => line.split(",").map((cell) => cell.trim()));
-  }
   const XLSX = await import("xlsx");
+  const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: "array" });
-  const sheetName = workbook.SheetNames[0];
-  if (!sheetName) return [];
-  return XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, raw: false, defval: "" }) as Array<Array<string | number | undefined>>;
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json<Array<string | number>>(sheet, { header: 1, defval: "" });
+  return rows.flat();
 }
 
 function fileToDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = reject;
+    reader.onerror = () => reject(new Error("파일을 읽지 못했습니다."));
     reader.readAsDataURL(file);
   });
+}
+
+async function readErrorMessage(response: Response) {
+  try {
+    const body = await response.json();
+    return body?.message || "요청을 처리하지 못했습니다.";
+  } catch {
+    return "요청을 처리하지 못했습니다.";
+  }
+}
+
+function normalize(value: string) {
+  return value.replace(/\s/g, "").trim();
 }

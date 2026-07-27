@@ -24,4 +24,4 @@ https://github.com/wonyteria/29sfilm_cor.git
 4. `Source`를 `GitHub Actions`로 선택
 5. `Actions` 탭에서 `Deploy static 29 WITH test app` 실행 상태 확인
 
-정상 배포되면 GitHub Pages 주소로 접속했을 때 루트 `index.html`이 `outputs/29with-test-app/`로 자동 이동합니다.
+정상 배포되면 GitHub Pages 루트는 정적 테스트 앱으로 이동하지 않습니다. 실제 운영 테스트는 Vercel에서 `app/apps/web` Next.js 앱으로 배포된 주소를 사용합니다.
