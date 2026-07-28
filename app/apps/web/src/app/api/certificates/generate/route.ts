@@ -62,12 +62,12 @@ function buildCertificatePdf(input: { schoolName: string; teacherName: string; w
     doc.moveDown(2);
     doc.text(
       hasKoreanFont
-        ? "위 학생/팀은 29 WITH 영상 꿈나무 양성 프로젝트에 참여했음을 확인합니다."
+        ? "위 학교는 29초영화제사무국이 주관한 영상 꿈나무 양성 프로젝트에 참여하여 성실히 활동하였음을 확인합니다."
         : "This certifies participation in the 29 WITH Dream Project.",
       { width: 400, align: "left" }
     );
     doc.text(input.issuedAt.toLocaleDateString("ko-KR"), 0, 560, { align: "center" });
-    doc.fontSize(20).text(hasKoreanFont ? "29 WITH 운영팀" : "29 WITH Operations", 0, 610, { align: "center" });
+    doc.fontSize(20).text(hasKoreanFont ? "29초영화제사무국" : "29 WITH Operations", 0, 610, { align: "center" });
     doc.end();
   });
 }

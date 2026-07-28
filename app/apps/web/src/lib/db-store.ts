@@ -24,21 +24,19 @@ type ApplicationForMatch = {
 };
 
 export async function readDbState(): Promise<AppState> {
-  const [events, teachers, applications, submissions, coupons, certificateTemplates, notices] = await Promise.all([
-    prisma.dreamEvent.findMany({ include: { event: true }, orderBy: { createdAt: "desc" } }),
-    prisma.teacherProfile.findMany({ include: { user: true }, orderBy: { createdAt: "desc" } }),
-    prisma.dreamApplication.findMany({ orderBy: { appliedAt: "desc" } }),
-    prisma.externalSubmission.findMany({
-      include: {
-        matches: { include: { participation: { include: { application: true } } } },
-        connection: { include: { dreamEvent: true } }
-      },
-      orderBy: { syncedAt: "desc" }
-    }),
-    prisma.coupon.findMany({ orderBy: { createdAt: "desc" } }),
-    prisma.certificateTemplate.findMany({ orderBy: { createdAt: "desc" } }),
-    prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 100 })
-  ]);
+  const events = await prisma.dreamEvent.findMany({ include: { event: true }, orderBy: { createdAt: "desc" } });
+  const teachers = await prisma.teacherProfile.findMany({ include: { user: true }, orderBy: { createdAt: "desc" } });
+  const applications = await prisma.dreamApplication.findMany({ orderBy: { appliedAt: "desc" } });
+  const submissions = await prisma.externalSubmission.findMany({
+    include: {
+      matches: { include: { participation: { include: { application: true } } } },
+      connection: { include: { dreamEvent: true } }
+    },
+    orderBy: { syncedAt: "desc" }
+  });
+  const coupons = await prisma.coupon.findMany({ orderBy: { createdAt: "desc" } });
+  const certificateTemplates = await prisma.certificateTemplate.findMany({ orderBy: { createdAt: "desc" } });
+  const notices = await prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 100 });
 
   return {
     events: events.map((item) => ({
@@ -179,7 +177,7 @@ export async function addDbEvent(input: Omit<DreamEvent, "id" | "createdAt">) {
         topic: input.topic || null,
         homepageUrl: input.homepageUrl || null,
         submissionUrl: input.submissionUrl || null,
-        notice: [input.prize ? `총상금: ${input.prize}` : "", input.notice].filter(Boolean).join("\n") || null,
+        notice: [input.prize ? `총상금 ${input.prize}` : "", input.notice].filter(Boolean).join("\n") || null,
         status: input.status === "RECRUITING" ? "RECRUITING" : "UPCOMING"
       }
     });
@@ -300,7 +298,7 @@ export async function addDbCertificateTemplate(fileName: string, dataUrl?: strin
   await prisma.certificateTemplate.create({
     data: { name: fileName, fileId: file?.id, isDefault: true }
   });
-  await prisma.auditLog.create({ data: { action: "활동확인서 템플릿", entityType: "FileAsset", entityId: file?.id ?? fileName } });
+  await prisma.auditLog.create({ data: { action: "활동확인서 템플릿 업로드", entityType: "FileAsset", entityId: file?.id ?? fileName } });
   return buildDbDashboard(await readDbState());
 }
 
@@ -358,12 +356,14 @@ export async function analyzeDbSubmissions(eventId: string, rows: Row[], upload?
 function normalizeSubmissionRow(eventId: string, row: Row, applications: ApplicationForMatch[]): UploadedSubmissionWork {
   const affiliationName = text(pick(row, ["소속", "소속명", "팀명", "affiliation", "team"]));
   const title = text(pick(row, ["작품명", "작품제목", "제목", "title"]));
-  const participantName = text(pick(row, ["감독", "출품자", "이름", "participant", "director"]));
+  const participantName = text(pick(row, ["감독", "출품자", "출품자(회원명)", "이름", "participant", "director"]));
   const submissionUrl = text(pick(row, ["출품 URL", "출품URL", "보기 URL", "영상 URL", "URL", "url", "링크"]));
   const score = number(pick(row, ["예심평점", "평점", "일반평점", "score"]));
   const finalResult = text(pick(row, ["수상결과", "본심", "finalResult"]));
-  const exact = applications.find((application) => application.affiliationNameSnapshot === affiliationName);
-  const similar = exact ? undefined : applications.find((application) => isSimilar(application.affiliationNameSnapshot, affiliationName));
+  const exact = findBestApplicationMatch(applications, (application) => application.affiliationNameSnapshot === affiliationName);
+  const similar = exact
+    ? undefined
+    : findBestApplicationMatch(applications, (application) => isSimilar(application.affiliationNameSnapshot, affiliationName));
   const matchStatus = exact ? "MATCHED" : similar ? "NEEDS_REVIEW" : "MISSING";
   return {
     id: `work_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -381,6 +381,14 @@ function normalizeSubmissionRow(eventId: string, row: Row, applications: Applica
     matchReason: matchReasonFor(matchStatus),
     eventType: exact?.dreamEvent.event.eventType ?? similar?.dreamEvent.event.eventType ?? "TWENTY_NINE_SECONDS"
   };
+}
+
+function findBestApplicationMatch(
+  applications: ApplicationForMatch[],
+  predicate: (application: ApplicationForMatch) => boolean
+) {
+  const candidates = applications.filter(predicate);
+  return candidates.find((application) => application.participation) ?? candidates[0];
 }
 
 function rankWorks<T extends SubmissionWork>(works: T[]) {
@@ -413,7 +421,7 @@ function formatPeriod(start?: Date | null, end?: Date | null) {
 }
 
 function extractPrize(notice?: string | null) {
-  const match = notice?.match(/^총상금:\s*(.+)$/m);
+  const match = notice?.match(/^총상금\s*(.+)$/m);
   return match?.[1] ?? "";
 }
 
