@@ -571,36 +571,36 @@ function EventsPage({ data, selectedEvent, onCreateEvent }: { data: DashboardRes
 
   return (
     <section className="panel">
-      <SectionHead title="?? ??" />
+      <SectionHead title="행사 운영" />
       <form className="event-editor" onSubmit={async (event) => {
         await onCreateEvent(event);
         setPosterPreview("");
       }}>
         <div className="event-fields">
-          <label className="field-title">???<input name="title" required placeholder="?: ?13? ??? 29????" /></label>
+          <label className="field-title">행사명<input name="title" required placeholder="예: 제13회 박카스 29초영화제" /></label>
           <div className="event-field-row">
-            <label>?? ??<select name="eventType" defaultValue={"TWENTY_NINE_SECONDS" satisfies EventType}><option value="TWENTY_NINE_SECONDS">29????</option><option value="SHORTFORM_KING">29????</option></select></label>
-            <label className="field-number">?? ?? ?<input name="targetSubmissionCount" min="1" step="1" type="number" defaultValue={10} inputMode="numeric" /></label>
+            <label>행사 유형<select name="eventType" defaultValue={"TWENTY_NINE_SECONDS" satisfies EventType}><option value="TWENTY_NINE_SECONDS">29초영화제</option><option value="SHORTFORM_KING">29역숏폼왕</option></select></label>
+            <label className="field-number">목표 작품 수<input name="targetSubmissionCount" min="1" step="1" type="number" defaultValue={10} inputMode="numeric" /></label>
           </div>
           <div className="event-field-row">
-            <label>????<input name="contestPeriod" placeholder="2026.04.08 - 2026.05.21" /></label>
-            <label>???/??<input name="prize" placeholder="??? ?? ??" /></label>
+            <label>공모기간<input name="contestPeriod" placeholder="2026.04.08 - 2026.05.21" /></label>
+            <label>총상금/혜택<input name="prize" placeholder="총상금 또는 혜택" /></label>
           </div>
-          <label>??<input name="topic" placeholder="?? ??" /></label>
-          <label>?? URL<input name="submissionUrl" placeholder="https://..." /></label>
-          <label>????<textarea name="notice" rows={4} placeholder="????? ??? ?? ??" /></label>
-          <div className="form-actions"><button className="primary-button" type="submit">?? ??</button></div>
+          <label>주제<input name="topic" placeholder="행사 주제" /></label>
+          <label>출품 URL<input name="submissionUrl" placeholder="https://..." /></label>
+          <label>안내사항<textarea name="notice" rows={4} placeholder="선생님에게 보여줄 주요 안내" /></label>
+          <div className="form-actions"><button className="primary-button" type="submit">행사 등록</button></div>
         </div>
         <aside className="poster-uploader">
           <label className="poster-drop">
             <input accept="image/*" name="posterFile" onChange={(event) => handlePosterChange(event.currentTarget.files?.[0])} type="file" />
-            {posterPreview ? <img alt="??? ??? ????" src={posterPreview} /> : <span><strong>??? ???</strong><small>PNG, JPG ??? ??? ?? ???????.</small></span>}
+            {posterPreview ? <img alt="등록할 포스터 미리보기" src={posterPreview} /> : <span><strong>포스터를 여기에 올려주세요</strong><small>PNG, JPG 이미지를 선택하면 바로 미리보기됩니다.</small></span>}
           </label>
         </aside>
       </form>
       <div className="sub-panel">
-        <h3>??? ??</h3>
-        {data.events.length ? <div className="event-list">{data.events.map((event) => <div className={"event-row " + (selectedEvent?.id === event.id ? "active" : "")} key={event.id}><div><strong>{event.title}</strong><small>{eventTypeLabels[event.eventType]} ? {event.contestPeriod || "?? ???"}</small></div><span className="status-pill success">{statusLabels[event.status]}</span></div>)}</div> : <EmptyState title="?? ??? ??? ????." text="? ?? ??? ??? ???." />}
+        <h3>등록된 행사</h3>
+        {data.events.length ? <div className="event-list">{data.events.map((event) => <div className={"event-row " + (selectedEvent?.id === event.id ? "active" : "")} key={event.id}><div><strong>{event.title}</strong><small>{eventTypeLabels[event.eventType]} · {event.contestPeriod || "기간 미입력"}</small></div><span className="status-pill success">{statusLabels[event.status]}</span></div>)}</div> : <EmptyState title="아직 등록된 행사가 없습니다." text="첫 꿈프 행사를 등록해 주세요." />}
       </div>
     </section>
   );
