@@ -3,12 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { Bell, CheckCircle2, FileCheck2, Gift, Home, Mail, Plus, RefreshCw, Upload } from "lucide-react";
-import type { DashboardResponse, DreamApplication, DreamEvent, EventType, SubmissionWork } from "@/lib/with-types";
+import type { DashboardResponse, DreamApplication, DreamEvent, EventType, SubmissionWork, TeacherProfile } from "@/lib/with-types";
 import { applicationStatusLabels, eventTypeLabels, matchStatusLabels, statusLabels } from "@/lib/with-types";
 
 type ViewMode = "teacher" | "admin";
 type TeacherPage = "home" | "available" | "works" | "benefits" | "docs" | "profile";
-type AdminPage = "dashboard" | "events" | "applications" | "submissions" | "benefits" | "documents" | "mails" | "history";
+type AdminPage = "dashboard" | "events" | "teachers" | "applications" | "submissions" | "benefits" | "documents" | "mails" | "history";
 type SessionUser = { id: string; userType: "ADMIN" | "TEACHER"; name: string; email: string; emailVerified?: boolean };
 
 const teacherPages: Array<{ key: TeacherPage; label: string }> = [
@@ -23,6 +23,7 @@ const teacherPages: Array<{ key: TeacherPage; label: string }> = [
 const adminPages: Array<{ key: AdminPage; label: string }> = [
   { key: "dashboard", label: "꿈프 대시보드" },
   { key: "events", label: "행사 운영" },
+  { key: "teachers", label: "선생님 DB" },
   { key: "applications", label: "신청/선정" },
   { key: "submissions", label: "출품 확인" },
   { key: "benefits", label: "혜택/지원" },
@@ -343,11 +344,12 @@ export default function HomePage() {
         {!isLoading && mode === "teacher" ? <TeacherPortal page={teacherPage} data={data} setPage={setTeacherPage} onApply={handleApply} currentUser={currentUser} /> : null}
         {!isLoading && mode === "admin" && adminPage === "dashboard" ? <AdminDashboard data={data} selectedEvent={selectedEvent} setPage={setAdminPage} /> : null}
         {!isLoading && mode === "admin" && adminPage === "events" ? <EventsPage data={data} selectedEvent={selectedEvent} onCreateEvent={handleCreateEvent} /> : null}
+        {!isLoading && mode === "admin" && adminPage === "teachers" ? <TeachersDbPage data={data} selectedEvent={selectedEvent} /> : null}
         {!isLoading && mode === "admin" && adminPage === "applications" ? <ApplicationsPage data={data} selectedEvent={selectedEvent} onApplicationStatus={handleApplicationStatus} /> : null}
         {!isLoading && mode === "admin" && adminPage === "submissions" ? <SubmissionsPage data={data} selectedEvent={selectedEvent} onUpload={handleSubmissionUpload} /> : null}
         {!isLoading && mode === "admin" && adminPage === "benefits" ? <BenefitsPage data={data} onCouponUpload={handleCouponUpload} /> : null}
         {!isLoading && mode === "admin" && adminPage === "documents" ? <DocumentsPage data={data} selectedEvent={selectedEvent} /> : null}
-        {!isLoading && mode === "admin" && adminPage === "mails" ? <MailsPage data={data} onSubmit={handleMailSubmit} /> : null}
+        {!isLoading && mode === "admin" && adminPage === "mails" ? <MailsPage data={data} selectedEvent={selectedEvent} onSubmit={handleMailSubmit} /> : null}
         {!isLoading && mode === "admin" && adminPage === "history" ? <HistoryPage data={data} /> : null}
       </section>
     </main>
@@ -547,6 +549,7 @@ function AdminDashboard({ data, selectedEvent, setPage }: { data: DashboardRespo
       {selectedEvent ? <section className="action-grid">
         <ActionCard icon={<FileCheck2 size={18} />} title="신청/선정 검토" text={`${selectedApplications.length}건의 신청을 선착순, 패널티, 성실 참여 기준으로 확인`} onClick={() => setPage("applications")} />
         <ActionCard icon={<Upload size={18} />} title="출품 엑셀 분석" text={`${selectedWorks.length}편 분석됨. 확인 필요 ${selectedReview}건`} onClick={() => setPage("submissions")} />
+        <ActionCard icon={<Home size={18} />} title="선생님 DB" text="가입 선생님, 학교, 연락처, 참여 이력을 확인" onClick={() => setPage("teachers")} />
         <ActionCard icon={<Mail size={18} />} title="메일/공지 관리" text="예약 메일, 리마인드, 확인서 발급 안내를 작성" onClick={() => setPage("mails")} />
       </section> : null}
     </>
@@ -587,6 +590,51 @@ function ApplicationsPage({ data, selectedEvent, onApplicationStatus }: { data: 
         <div className="table-wrap"><table><thead><tr><th>학교</th><th>소속/팀명</th><th>예상 작품</th><th>상태</th><th>처리</th></tr></thead><tbody>{rows.map((application) => <tr key={application.id}><td>{application.schoolName}</td><td>{application.affiliationName}</td><td>{application.expectedSubmissionCount}편</td><td>{applicationStatusLabels[application.status]}</td><td><div className="button-row"><button className="ghost-button" onClick={() => onApplicationStatus(application.id, "SELECTED")} type="button">선정</button><button className="ghost-button" onClick={() => onApplicationStatus(application.id, "WAITLISTED")} type="button">예비</button><button className="ghost-button" onClick={() => onApplicationStatus(application.id, "NOT_SELECTED")} type="button">미선정</button></div></td></tr>)}</tbody></table></div>
       ) : (
         <EmptyState title="접수된 신청이 없습니다." text="선생님 신청이 들어오면 선착순, 패널티, 성실 참여 이력을 기준으로 검토합니다." />
+      )}
+    </section>
+  );
+}
+
+function TeachersDbPage({ data, selectedEvent }: { data: DashboardResponse; selectedEvent?: DreamEvent }) {
+  const rows = data.teachers.map((teacher) => {
+    const teacherApplications = data.applications.filter((application) => application.teacherProfileId === teacher.id);
+    const eventApplications = selectedEvent ? teacherApplications.filter((application) => application.eventId === selectedEvent.id) : teacherApplications;
+    const works = data.submissions.filter((work) => eventApplications.some((application) => application.id === work.applicationId));
+    return { teacher, applications: teacherApplications, eventApplications, works };
+  });
+
+  return (
+    <section className="panel">
+      <SectionHead title="선생님 DB" text="꿈프 가입 선생님과 학교별 신청, 선정, 출품 현황을 관리합니다." />
+      <div className="metric-grid compact">
+        <MetricCard label="등록 선생님" value={`${data.teachers.length}명`} />
+        <MetricCard label="참여 학교" value={`${new Set(data.teachers.map((teacher) => teacher.schoolName)).size}교`} />
+        <MetricCard label="선정 이력" value={`${data.applications.filter((application) => application.status === "SELECTED").length}건`} />
+      </div>
+      {rows.length ? (
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>학교</th><th>담당 선생님</th><th>이메일</th><th>연락처</th><th>소속/팀명</th><th>신청/선정</th><th>출품 확인</th></tr></thead>
+            <tbody>
+              {rows.map(({ teacher, applications, eventApplications, works }) => {
+                const selectedCount = applications.filter((application) => application.status === "SELECTED").length;
+                return (
+                  <tr key={teacher.id}>
+                    <td>{teacher.schoolName || "-"}</td>
+                    <td>{teacher.teacherName || "-"}</td>
+                    <td>{teacher.email || "-"}</td>
+                    <td>{teacher.phone || "-"}</td>
+                    <td>{teacher.affiliationName || "-"}</td>
+                    <td>{selectedEvent ? `${eventApplications.length}건` : `${applications.length}건 · 선정 ${selectedCount}건`}</td>
+                    <td>{works.length}편</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <EmptyState title="등록된 선생님이 없습니다." text="선생님이 회원가입하거나 꿈프를 신청하면 이곳에 학교 DB가 쌓입니다." />
       )}
     </section>
   );
@@ -667,13 +715,64 @@ function DocumentsPage({ data, selectedEvent }: { data: DashboardResponse; selec
   );
 }
 
-function MailsPage({ data, onSubmit }: { data: DashboardResponse; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
-  const selectedEmails = data.applications.filter((application) => application.status === "SELECTED").map((application) => data.teachers.find((teacher) => teacher.id === application.teacherProfileId)?.email).filter(Boolean).join("\n");
+function MailsPage({ data, selectedEvent, onSubmit }: { data: DashboardResponse; selectedEvent?: DreamEvent; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+  const recipientCandidates = data.applications
+    .filter((application) => application.status === "SELECTED" && (!selectedEvent || application.eventId === selectedEvent.id))
+    .map((application) => {
+      const teacher = data.teachers.find((item) => item.id === application.teacherProfileId);
+      const eventItem = data.events.find((item) => item.id === application.eventId);
+      return teacher?.email ? { application, teacher, eventItem, email: teacher.email } : null;
+    })
+    .filter(Boolean) as Array<{ application: DreamApplication; teacher: TeacherProfile; eventItem?: DreamEvent; email: string }>;
+  const recipientKey = `${selectedEvent?.id || "all"}:${recipientCandidates.map((candidate) => candidate.application.id).join("|")}`;
+  const [checkedEmails, setCheckedEmails] = useState<string[]>(() => [...new Set(recipientCandidates.map((candidate) => candidate.email))]);
+  const selectedEmails = checkedEmails.join("\n");
+
+  useEffect(() => {
+    setCheckedEmails([...new Set(recipientCandidates.map((candidate) => candidate.email))]);
+  }, [recipientKey]);
+
+  function toggleRecipient(email: string) {
+    setCheckedEmails((current) => current.includes(email) ? current.filter((item) => item !== email) : [...current, email]);
+  }
+
+  function selectAllRecipients() {
+    setCheckedEmails([...new Set(recipientCandidates.map((candidate) => candidate.email))]);
+  }
+
+  function clearRecipients() {
+    setCheckedEmails([]);
+  }
+
   return (
     <section className="panel">
       <SectionHead title="메일/공지" text="선정 안내, 출품 리마인드, 확인서 발급 공지를 저장하거나 Gmail SMTP로 즉시 발송합니다." />
       <form className="form-grid" onSubmit={onSubmit}>
-        <label className="wide">수신자 이메일<textarea name="recipientEmails" rows={4} defaultValue={selectedEmails} placeholder="teacher@example.com&#10;teacher2@example.com" required /></label>
+        <div className="wide recipient-picker">
+          <div className="recipient-picker-head">
+            <strong>수신 학교 선택</strong>
+            <div className="button-row">
+              <button className="ghost-button" onClick={selectAllRecipients} type="button">전체 선택</button>
+              <button className="ghost-button" onClick={clearRecipients} type="button">선택 해제</button>
+            </div>
+          </div>
+          {recipientCandidates.length ? (
+            <div className="recipient-grid">
+              {recipientCandidates.map(({ application, teacher, eventItem, email }) => (
+                <label className="recipient-option" key={application.id}>
+                  <input checked={checkedEmails.includes(email)} onChange={() => toggleRecipient(email)} type="checkbox" />
+                  <span>
+                    <strong>{teacher.schoolName}</strong>
+                    <small>{teacher.teacherName} · {email} · {eventItem?.title || "행사 미지정"}</small>
+                  </span>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <EmptyState title="선정된 학교가 없습니다." text="현재 선택한 꿈프에서 학교를 선정하면 메일 수신 후보로 자동 표시됩니다." />
+          )}
+        </div>
+        <label className="wide">수신자 이메일<textarea key={selectedEmails} name="recipientEmails" rows={4} defaultValue={selectedEmails} placeholder="teacher@example.com&#10;teacher2@example.com" required /></label>
         <label className="wide">제목<input name="subject" required placeholder="꿈프 선정 및 출품 안내" /></label>
         <label className="wide">본문<textarea name="body" rows={8} required placeholder="발송 전 관리자가 검토할 메일 본문" /></label>
         <label>예약 시각<input name="scheduledAt" type="datetime-local" /></label>
