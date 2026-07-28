@@ -125,16 +125,13 @@ export default function HomePage() {
   async function handleSignup(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
-    const userType = formData.get("userType") === "ADMIN" ? "ADMIN" : "TEACHER";
     const response = await fetch("/api/auth/signup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: formData.get("name"),
         email: formData.get("email"),
-        password: formData.get("password"),
-        userType,
-        adminCode: formData.get("adminCode")
+        password: formData.get("password")
       })
     });
     const body = await response.json();
@@ -490,7 +487,7 @@ function AuthPanel({
     <section className="panel">
       <SectionHead
         title={mode === "login" ? "이메일 로그인" : "회원가입"}
-        text={mode === "login" ? "가입한 이메일과 비밀번호로 로그인합니다." : "가입 후 받은 인증 메일을 눌러야 신청/관리자 작업이 가능합니다."}
+        text={mode === "login" ? "가입한 이메일과 비밀번호로 로그인합니다." : "선생님 전용 가입입니다. 업무용 이메일로 가입하고 인증 메일을 확인하세요."}
       />
       {mode === "login" ? (
         <form className="form-grid" onSubmit={onLogin}>
@@ -503,8 +500,6 @@ function AuthPanel({
           <label>이름<input name="name" required placeholder="홍길동" /></label>
           <label>이메일<input name="email" required type="email" placeholder="teacher@example.com" /></label>
           <label>비밀번호<input name="password" minLength={6} required type="password" /></label>
-          <label>계정 유형<select name="userType" defaultValue="TEACHER"><option value="TEACHER">선생님</option><option value="ADMIN">관리자</option></select></label>
-          <label className="wide">관리자 가입 코드<input name="adminCode" placeholder="관리자 계정일 때만 입력" /></label>
           <div className="form-actions"><button className="primary-button" type="submit">가입하고 인증 메일 받기</button></div>
         </form>
       )}

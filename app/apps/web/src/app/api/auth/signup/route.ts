@@ -11,8 +11,7 @@ export async function POST(request: Request) {
       email: String(body.email || "").trim(),
       password: String(body.password || ""),
       name: String(body.name || "").trim(),
-      userType: body.userType === "ADMIN" ? "ADMIN" : "TEACHER",
-      adminCode: body.adminCode ? String(body.adminCode) : undefined,
+      userType: "TEACHER",
       redirectTo: `${origin}/api/auth/callback`
     });
     return NextResponse.json({

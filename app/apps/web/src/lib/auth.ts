@@ -4,6 +4,8 @@ import { prisma, isDatabaseConfigured } from "./prisma";
 import { createSupabaseServerClient } from "./supabase-server";
 
 const sessionCookieName = "with_session";
+const fixedAdminEmail = "29sfilm@gmail.com";
+const fixedAdminPassword = "29chdudghkwp!";
 
 export type SessionUser = {
   id: string;
@@ -22,9 +24,16 @@ export async function verifyPassword(password: string, passwordHash: string) {
 }
 
 export async function getSessionUser(): Promise<SessionUser | null> {
+  const cookieUser = getSessionCookieUser();
+  if (cookieUser?.email === fixedAdminEmail && cookieUser.userType === "ADMIN") return cookieUser;
+
   const supabaseUser = await getSupabaseSessionUser();
   if (supabaseUser) return supabaseUser;
 
+  return cookieUser;
+}
+
+function getSessionCookieUser(): SessionUser | null {
   const raw = cookies().get(sessionCookieName)?.value;
   if (!raw) return null;
   try {
@@ -51,6 +60,38 @@ export function clearSessionCookie() {
 }
 
 export async function loginWithPassword(email: string, password: string) {
+  if (email.toLowerCase() === fixedAdminEmail && password === fixedAdminPassword) {
+    if (isDatabaseConfigured()) {
+      try {
+        await prisma.user.upsert({
+          where: { email: fixedAdminEmail },
+          update: {
+            userType: "ADMIN",
+            name: "29 WITH 관리자",
+            passwordHash: "FIXED_ADMIN_ACCOUNT",
+            status: "ACTIVE"
+          },
+          create: {
+            userType: "ADMIN",
+            name: "29 WITH 관리자",
+            email: fixedAdminEmail,
+            passwordHash: "FIXED_ADMIN_ACCOUNT",
+            status: "ACTIVE"
+          }
+        });
+      } catch (error) {
+        console.warn("Fixed admin user sync failed", error);
+      }
+    }
+    return {
+      id: "fixed-admin",
+      userType: "ADMIN",
+      name: "29 WITH 관리자",
+      email: fixedAdminEmail,
+      emailVerified: true
+    } satisfies SessionUser;
+  }
+
   if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
     const supabase = createSupabaseServerClient();
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -78,14 +119,11 @@ export async function signupWithPassword(input: {
   email: string;
   password: string;
   name: string;
-  userType: "ADMIN" | "TEACHER";
-  adminCode?: string;
+  userType?: "ADMIN" | "TEACHER";
   redirectTo?: string;
 }) {
-  if (input.userType === "ADMIN") {
-    if (!process.env.ADMIN_SIGNUP_CODE || input.adminCode !== process.env.ADMIN_SIGNUP_CODE) {
-      throw new Error("관리자 가입 코드가 올바르지 않습니다.");
-    }
+  if (input.email.trim().toLowerCase() === fixedAdminEmail) {
+    throw new Error("관리자 계정은 회원가입할 수 없습니다. 관리자 로그인 화면을 이용하세요.");
   }
 
   const supabase = createSupabaseServerClient();
@@ -96,7 +134,7 @@ export async function signupWithPassword(input: {
       emailRedirectTo: input.redirectTo,
       data: {
         name: input.name,
-        user_type: input.userType
+        user_type: "TEACHER"
       }
     }
   });
