@@ -7,8 +7,20 @@ import type {
   DashboardResponse,
   DreamApplication,
   DreamEvent,
-  SubmissionWork
+  SubmissionWork,
+  TeacherProfile
 } from "./with-types";
+import { isDatabaseConfigured } from "./prisma";
+import {
+  addDbApplication,
+  addDbCertificateTemplate,
+  addDbCoupons,
+  addDbEvent,
+  analyzeDbSubmissions,
+  buildDbDashboard,
+  readDbState,
+  updateDbApplicationStatus
+} from "./db-store";
 
 const emptyState: AppState = {
   events: [],
@@ -48,6 +60,7 @@ async function ensureDataFile() {
 }
 
 export async function readState(): Promise<AppState> {
+  if (isDatabaseConfigured()) return readDbState();
   await ensureDataFile();
   const raw = await fs.readFile(dataFile, "utf8");
   return { ...cloneState(emptyState), ...(JSON.parse(raw) as Partial<AppState>) };
@@ -60,6 +73,7 @@ export async function writeState(state: AppState): Promise<AppState> {
 }
 
 export function buildDashboard(state: AppState): DashboardResponse {
+  if (isDatabaseConfigured()) return buildDbDashboard(state);
   const activeEventIds = new Set(
     state.events.filter((event) => event.status !== "CLOSED").map((event) => event.id)
   );
@@ -84,10 +98,14 @@ export function buildDashboard(state: AppState): DashboardResponse {
 }
 
 export async function resetState() {
+  if (isDatabaseConfigured()) {
+    throw new Error("DB 운영 모드에서는 전체 초기화를 막았습니다. 필요한 경우 DB 관리 도구에서 명시적으로 처리하세요.");
+  }
   return writeState(cloneState(emptyState));
 }
 
 export async function addEvent(input: Omit<DreamEvent, "id" | "createdAt">) {
+  if (isDatabaseConfigured()) return addDbEvent(input);
   const state = await readState();
   const event: DreamEvent = {
     id: id("event"),
@@ -100,7 +118,8 @@ export async function addEvent(input: Omit<DreamEvent, "id" | "createdAt">) {
   return buildDashboard(state);
 }
 
-export async function addCoupons(couponNumbers: string[]) {
+export async function addCoupons(couponNumbers: string[], upload?: { fileName?: string; dataUrl?: string }) {
+  if (isDatabaseConfigured()) return addDbCoupons(couponNumbers, upload);
   const state = await readState();
   const existing = new Set(state.coupons.map((coupon) => coupon.couponNumber));
   const seenInUpload = new Set<string>();
@@ -128,6 +147,7 @@ export async function addCoupons(couponNumbers: string[]) {
 }
 
 export async function addCertificateTemplate(fileName: string, dataUrl?: string) {
+  if (isDatabaseConfigured()) return addDbCertificateTemplate(fileName, dataUrl);
   const state = await readState();
   state.certificateTemplates.unshift({
     id: id("template"),
@@ -140,7 +160,8 @@ export async function addCertificateTemplate(fileName: string, dataUrl?: string)
   return buildDashboard(state);
 }
 
-export async function analyzeSubmissions(eventId: string, rows: Array<Record<string, string | number | undefined>>) {
+export async function analyzeSubmissions(eventId: string, rows: Array<Record<string, string | number | undefined>>, upload?: { fileName?: string; dataUrl?: string }) {
+  if (isDatabaseConfigured()) return analyzeDbSubmissions(eventId, rows, upload);
   const state = await readState();
   const event = state.events.find((item) => item.id === eventId);
   if (!event) throw new Error("행사를 찾을 수 없습니다.");
@@ -157,6 +178,60 @@ export async function analyzeSubmissions(eventId: string, rows: Array<Record<str
       `총 ${works.length}건 분석, 자동 확인 ${works.filter((work) => work.matchStatus === "MATCHED").length}건, 확인 필요 ${works.filter((work) => work.matchStatus === "NEEDS_REVIEW").length}건`
     )
   );
+  await writeState(state);
+  return buildDashboard(state);
+}
+
+export async function addApplication(input: {
+  eventId: string;
+  schoolName: string;
+  teacherName: string;
+  email: string;
+  phone?: string;
+  affiliationName: string;
+  expectedSubmissionCount: number;
+  usagePlan?: string;
+  memo?: string;
+}) {
+  if (isDatabaseConfigured()) return addDbApplication(input);
+  const state = await readState();
+  const teacher =
+    state.teachers.find((item) => item.email === input.email) ??
+    ({
+      id: id("teacher"),
+      schoolName: input.schoolName,
+      teacherName: input.teacherName,
+      email: input.email,
+      phone: input.phone || "",
+      affiliationName: input.affiliationName,
+      trustStatus: "NORMAL"
+    } satisfies TeacherProfile);
+  if (!state.teachers.some((item) => item.id === teacher.id)) state.teachers.unshift(teacher);
+  state.applications.unshift({
+    id: id("application"),
+    eventId: input.eventId,
+    teacherProfileId: teacher.id,
+    schoolName: input.schoolName,
+    affiliationName: input.affiliationName,
+    expectedSubmissionCount: Math.max(1, input.expectedSubmissionCount || 1),
+    usagePlan: input.usagePlan || "",
+    plannedSubmissionDate: "",
+    memo: input.memo || "",
+    status: "SUBMITTED",
+    createdAt: now()
+  });
+  state.notices.unshift(makeNotice("신청 접수", `${input.schoolName} ${input.teacherName} 선생님 신청이 접수되었습니다.`));
+  await writeState(state);
+  return buildDashboard(state);
+}
+
+export async function updateApplicationStatus(applicationId: string, status: "SELECTED" | "WAITLISTED" | "NOT_SELECTED") {
+  if (isDatabaseConfigured()) return updateDbApplicationStatus(applicationId, status);
+  const state = await readState();
+  const application = state.applications.find((item) => item.id === applicationId);
+  if (!application) throw new Error("신청을 찾을 수 없습니다.");
+  application.status = status;
+  state.notices.unshift(makeNotice("신청 상태 변경", `${application.schoolName} 신청을 ${status} 처리했습니다.`));
   await writeState(state);
   return buildDashboard(state);
 }

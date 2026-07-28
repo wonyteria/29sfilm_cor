@@ -69,6 +69,21 @@ model User {
   teacherProfile TeacherProfile?
 }
 
+model FileAsset {
+  id              String   @id @default(cuid())
+  originalName    String
+  contentType     String?
+  sizeBytes       Int?
+  storageProvider String   @default("LOCAL_DATA_URL")
+  bucket          String?
+  objectPath      String?
+  publicUrl       String?
+  dataUrl         String?
+  uploadedBy      String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
 model TeacherProfile {
   id                      String   @id @default(cuid())
   userId                  String   @unique

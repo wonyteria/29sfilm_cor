@@ -9,6 +9,7 @@ import { applicationStatusLabels, eventTypeLabels, matchStatusLabels, statusLabe
 type ViewMode = "teacher" | "admin";
 type TeacherPage = "home" | "available" | "works" | "benefits" | "docs" | "profile";
 type AdminPage = "dashboard" | "events" | "submissions" | "benefits" | "documents" | "mails" | "history";
+type SessionUser = { id: string; userType: "ADMIN" | "TEACHER"; name: string; email: string; emailVerified?: boolean };
 
 const teacherPages: Array<{ key: TeacherPage; label: string }> = [
   { key: "home", label: "내 대시보드" },
@@ -64,9 +65,12 @@ export default function HomePage() {
   const [selectedEventId, setSelectedEventId] = useState("");
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [currentUser, setCurrentUser] = useState<SessionUser | null>(null);
+  const [authPanel, setAuthPanel] = useState<"login" | "signup" | null>(null);
 
   useEffect(() => {
     void loadDashboard();
+    void loadSession();
   }, []);
 
   useEffect(() => {
@@ -85,9 +89,81 @@ export default function HomePage() {
     setIsLoading(false);
   }
 
-  async function postJson(url: string, body?: unknown, doneMessage = "저장되었습니다.") {
-    const response = await fetch(url, {
+  async function loadSession() {
+    const response = await fetch("/api/auth/me", { cache: "no-store" });
+    if (!response.ok) return;
+    const body = (await response.json()) as { user?: SessionUser | null };
+    if (body.user) {
+      setCurrentUser(body.user);
+      setMode(body.user.userType === "ADMIN" ? "admin" : "teacher");
+    }
+  }
+
+  async function handleLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const response = await fetch("/api/auth/login", {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: formData.get("email"),
+        password: formData.get("password")
+      })
+    });
+    if (!response.ok) {
+      setMessage(await readErrorMessage(response));
+      return;
+    }
+    const body = (await response.json()) as { user: SessionUser };
+    setCurrentUser(body.user);
+    setMode(body.user.userType === "ADMIN" ? "admin" : "teacher");
+    setAuthPanel(null);
+    setMessage(`${body.user.name} 계정으로 로그인했습니다.`);
+  }
+
+  async function handleSignup(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const userType = formData.get("userType") === "ADMIN" ? "ADMIN" : "TEACHER";
+    const response = await fetch("/api/auth/signup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: formData.get("name"),
+        email: formData.get("email"),
+        password: formData.get("password"),
+        userType,
+        adminCode: formData.get("adminCode")
+      })
+    });
+    const body = await response.json();
+    if (!response.ok) {
+      setMessage(body?.message || "회원가입을 처리하지 못했습니다.");
+      return;
+    }
+    event.currentTarget.reset();
+    setAuthPanel("login");
+    setMessage(body?.message || "인증 메일을 확인하세요.");
+  }
+
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    setCurrentUser(null);
+    setMode("teacher");
+    setMessage("로그아웃했습니다.");
+  }
+
+  function selectMode(nextMode: ViewMode) {
+    if (currentUser?.userType === "TEACHER" && nextMode === "admin") {
+      setMessage("선생님 계정은 관리자 화면에 접근할 수 없습니다.");
+      return;
+    }
+    setMode(nextMode);
+  }
+
+  async function postJson(url: string, body?: unknown, doneMessage = "저장되었습니다.", method = "POST") {
+    const response = await fetch(url, {
+      method,
       headers: { "Content-Type": "application/json" },
       body: body == null ? undefined : JSON.stringify(body)
     });
@@ -134,7 +210,11 @@ export default function HomePage() {
       const couponNumbers = (await readSheetCellValues(file))
         .map((value) => String(value ?? "").trim())
         .filter((value) => value && !/쿠폰|coupon/i.test(value));
-      await postJson("/api/coupons", { couponNumbers }, `쿠폰 ${couponNumbers.length}개를 인식했습니다.`);
+      await postJson(
+        "/api/coupons",
+        { couponNumbers, fileName: file.name, dataUrl: await fileToDataUrl(file) },
+        `쿠폰 ${couponNumbers.length}개를 인식했습니다.`
+      );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "쿠폰 파일을 읽지 못했습니다.");
     }
@@ -145,7 +225,7 @@ export default function HomePage() {
     try {
       await postJson(
         "/api/submissions/analyze",
-        { eventId: selectedEvent.id, rows: await readSheetRows(file) },
+        { eventId: selectedEvent.id, rows: await readSheetRows(file), fileName: file.name, dataUrl: await fileToDataUrl(file) },
         "출품 엑셀 분석을 완료했습니다."
       );
       setAdminPage("submissions");
@@ -161,6 +241,52 @@ export default function HomePage() {
       { fileName: file.name, dataUrl: await fileToDataUrl(file) },
       "활동확인서 템플릿을 저장했습니다."
     );
+  }
+
+  async function handleApply(eventItem: DreamEvent, formData: FormData) {
+    await postJson(
+      "/api/applications",
+      {
+        eventId: eventItem.id,
+        schoolName: formData.get("schoolName"),
+        teacherName: formData.get("teacherName"),
+        email: formData.get("email"),
+        phone: formData.get("phone"),
+        affiliationName: formData.get("affiliationName"),
+        expectedSubmissionCount: Number(formData.get("expectedSubmissionCount") || 1),
+        usagePlan: formData.get("usagePlan"),
+        memo: formData.get("memo")
+      },
+      "꿈프 신청을 접수했습니다."
+    );
+    setTeacherPage("home");
+  }
+
+  async function handleApplicationStatus(applicationId: string, status: DreamApplication["status"]) {
+    await postJson("/api/applications", { applicationId, status }, "신청 상태를 변경했습니다.", "PATCH");
+  }
+
+  async function handleMailSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const response = await fetch("/api/mails", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        recipientEmails: formData.get("recipientEmails"),
+        subject: formData.get("subject"),
+        body: formData.get("body"),
+        scheduledAt: formData.get("scheduledAt"),
+        sendNow: formData.get("sendNow") === "on"
+      })
+    });
+    if (!response.ok) {
+      setMessage(await readErrorMessage(response));
+      return;
+    }
+    setMessage(formData.get("sendNow") === "on" ? "운영공지를 발송했습니다." : "메일 초안/예약을 저장했습니다.");
+    event.currentTarget.reset();
+    await loadDashboard();
   }
 
   async function handleReset() {
@@ -183,10 +309,10 @@ export default function HomePage() {
           </div>
         </div>
         <div className="mode-switch" aria-label="화면 전환">
-          <button className={mode === "teacher" ? "active" : ""} onClick={() => setMode("teacher")} type="button">
+          <button className={mode === "teacher" ? "active" : ""} onClick={() => selectMode("teacher")} type="button">
             선생님
           </button>
-          <button className={mode === "admin" ? "active" : ""} onClick={() => setMode("admin")} type="button">
+          <button className={mode === "admin" ? "active" : ""} onClick={() => selectMode("admin")} type="button">
             관리자
           </button>
         </div>
@@ -224,6 +350,20 @@ export default function HomePage() {
             <button className="ghost-button" onClick={loadDashboard} type="button">
               <RefreshCw size={16} /> 새로고침
             </button>
+            {currentUser ? (
+              <button className="ghost-button" onClick={handleLogout} type="button">
+                {currentUser.userType === "ADMIN" ? "관리자" : "선생님"} {currentUser.emailVerified ? "인증됨" : "미인증"} · 로그아웃
+              </button>
+            ) : (
+              <>
+                <button className="ghost-button" onClick={() => setAuthPanel(authPanel === "signup" ? null : "signup")} type="button">
+                  회원가입
+                </button>
+                <button className="ghost-button" onClick={() => setAuthPanel(authPanel === "login" ? null : "login")} type="button">
+                  이메일 로그인
+                </button>
+              </>
+            )}
             {mode === "admin" ? (
               <button className="ghost-button" onClick={handleReset} type="button">
                 <RotateCcw size={16} /> 초기화
@@ -233,16 +373,19 @@ export default function HomePage() {
         </header>
 
         {message ? <div className="toast-inline">{message}</div> : null}
+        {!currentUser && authPanel ? (
+          <AuthPanel mode={authPanel} onLogin={handleLogin} onSignup={handleSignup} />
+        ) : null}
         {isLoading ? <section className="panel">불러오는 중입니다.</section> : null}
 
         {!isLoading && mode === "teacher" ? (
-          <TeacherPortal page={teacherPage} data={data} setPage={setTeacherPage} />
+          <TeacherPortal page={teacherPage} data={data} setPage={setTeacherPage} onApply={handleApply} currentUser={currentUser} />
         ) : null}
         {!isLoading && mode === "admin" && adminPage === "dashboard" ? (
           <AdminDashboard data={data} selectedEvent={selectedEvent} setPage={setAdminPage} />
         ) : null}
         {!isLoading && mode === "admin" && adminPage === "events" ? (
-          <EventsPage data={data} selectedEvent={selectedEvent} onCreateEvent={handleCreateEvent} />
+          <EventsPage data={data} selectedEvent={selectedEvent} onCreateEvent={handleCreateEvent} onApplicationStatus={handleApplicationStatus} />
         ) : null}
         {!isLoading && mode === "admin" && adminPage === "submissions" ? (
           <SubmissionsPage data={data} selectedEvent={selectedEvent} onUpload={handleSubmissionUpload} />
@@ -253,7 +396,7 @@ export default function HomePage() {
         {!isLoading && mode === "admin" && adminPage === "documents" ? (
           <DocumentsPage data={data} onTemplateUpload={handleTemplateUpload} />
         ) : null}
-        {!isLoading && mode === "admin" && adminPage === "mails" ? <MailsPage /> : null}
+        {!isLoading && mode === "admin" && adminPage === "mails" ? <MailsPage data={data} onSubmit={handleMailSubmit} /> : null}
         {!isLoading && mode === "admin" && adminPage === "history" ? <HistoryPage data={data} /> : null}
       </section>
     </main>
@@ -263,14 +406,18 @@ export default function HomePage() {
 function TeacherPortal({
   page,
   data,
-  setPage
+  setPage,
+  onApply,
+  currentUser
 }: {
   page: TeacherPage;
   data: DashboardResponse;
   setPage: (page: TeacherPage) => void;
+  onApply: (eventItem: DreamEvent, formData: FormData) => void;
+  currentUser: SessionUser | null;
 }) {
   const teacherApplications = data.applications.filter((application) => {
-    if (!teacherSnapshot.school && !teacherSnapshot.affiliation) return false;
+    if (!teacherSnapshot.school && !teacherSnapshot.affiliation) return true;
     return (
       normalize(application.schoolName) === normalize(teacherSnapshot.school) ||
       normalize(application.affiliationName) === normalize(teacherSnapshot.affiliation)
@@ -278,11 +425,11 @@ function TeacherPortal({
   });
   const availableEvents = data.events.filter((event) => event.status === "RECRUITING");
   const teacherWorks = data.submissions.filter((work) => {
-    if (!teacherSnapshot.affiliation) return false;
+    if (!teacherSnapshot.affiliation) return true;
     return normalize(work.affiliationName) === normalize(teacherSnapshot.affiliation);
   });
 
-  if (page === "available") return <TeacherAvailableEvents events={availableEvents} />;
+  if (page === "available") return <TeacherAvailableEvents events={availableEvents} onApply={onApply} currentUser={currentUser} />;
   if (page === "works") return <TeacherWorks works={teacherWorks} events={data.events} />;
   if (page === "benefits") return <TeacherBenefits data={data} applications={teacherApplications} />;
   if (page === "docs") return <TeacherDocuments works={teacherWorks} events={data.events} />;
@@ -326,7 +473,59 @@ function TeacherPortal({
   );
 }
 
-function TeacherAvailableEvents({ events }: { events: DreamEvent[] }) {
+function AuthPanel({
+  mode,
+  onLogin,
+  onSignup
+}: {
+  mode: "login" | "signup";
+  onLogin: (event: FormEvent<HTMLFormElement>) => void;
+  onSignup: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <section className="panel">
+      <SectionHead
+        title={mode === "login" ? "이메일 로그인" : "회원가입"}
+        text={mode === "login" ? "가입한 이메일과 비밀번호로 로그인합니다." : "가입 후 받은 인증 메일을 눌러야 신청/관리자 작업이 가능합니다."}
+      />
+      {mode === "login" ? (
+        <form className="form-grid" onSubmit={onLogin}>
+          <label>이메일<input name="email" required type="email" placeholder="teacher@example.com" /></label>
+          <label>비밀번호<input name="password" required type="password" /></label>
+          <div className="form-actions"><button className="primary-button" type="submit">로그인</button></div>
+        </form>
+      ) : (
+        <form className="form-grid" onSubmit={onSignup}>
+          <label>이름<input name="name" required placeholder="홍길동" /></label>
+          <label>이메일<input name="email" required type="email" placeholder="teacher@example.com" /></label>
+          <label>비밀번호<input name="password" minLength={6} required type="password" /></label>
+          <label>계정 유형<select name="userType" defaultValue="TEACHER"><option value="TEACHER">선생님</option><option value="ADMIN">관리자</option></select></label>
+          <label className="wide">관리자 가입 코드<input name="adminCode" placeholder="관리자 계정일 때만 입력" /></label>
+          <div className="form-actions"><button className="primary-button" type="submit">가입하고 인증 메일 받기</button></div>
+        </form>
+      )}
+    </section>
+  );
+}
+
+function TeacherAvailableEvents({
+  events,
+  onApply,
+  currentUser
+}: {
+  events: DreamEvent[];
+  onApply: (eventItem: DreamEvent, formData: FormData) => void;
+  currentUser: SessionUser | null;
+}) {
+  const [openEventId, setOpenEventId] = useState("");
+
+  function submitApplication(eventItem: DreamEvent, submitEvent: FormEvent<HTMLFormElement>) {
+    submitEvent.preventDefault();
+    onApply(eventItem, new FormData(submitEvent.currentTarget));
+    submitEvent.currentTarget.reset();
+    setOpenEventId("");
+  }
+
   return (
     <section className="panel teacher-panel">
       <SectionHead title="신청 가능한 행사" text="관리자가 등록하고 모집중으로 둔 꿈프 행사만 표시됩니다." />
@@ -346,8 +545,25 @@ function TeacherAvailableEvents({ events }: { events: DreamEvent[] }) {
                 <p className="event-notice">{event.notice || "관리자가 등록한 안내사항이 없습니다."}</p>
                 <div className="button-row">
                   {event.homepageUrl ? <a className="ghost-button" href={event.homepageUrl} rel="noreferrer" target="_blank">홈페이지</a> : null}
-                  <button className="primary-button" type="button">신청하기</button>
+                  <button className="primary-button" onClick={() => setOpenEventId(openEventId === event.id ? "" : event.id)} type="button">신청하기</button>
                 </div>
+                {openEventId === event.id ? (
+                  currentUser?.emailVerified ? (
+                    <form className="form-grid sub-panel" onSubmit={(submitEvent) => submitApplication(event, submitEvent)}>
+                      <label>학교명<input name="schoolName" required placeholder="예: 미림마이스터고" /></label>
+                      <label>담당 선생님<input name="teacherName" required defaultValue={currentUser.name} /></label>
+                      <label>업무용 이메일<input name="email" required type="email" defaultValue={currentUser.email} /></label>
+                      <label>연락처<input name="phone" placeholder="010-0000-0000" /></label>
+                      <label>출품 소속명/팀명<input name="affiliationName" required placeholder="엑셀 소속명과 띄어쓰기까지 동일하게 입력" /></label>
+                      <label>예상 작품 수<input name="expectedSubmissionCount" required min="1" type="number" defaultValue={1} /></label>
+                      <label className="wide">활용 계획<textarea name="usagePlan" rows={3} placeholder="수업/동아리에서 어떻게 참여할지 입력" /></label>
+                      <label className="wide">메모<textarea name="memo" rows={2} placeholder="관리자에게 전달할 내용" /></label>
+                      <div className="form-actions"><button className="primary-button" type="submit">신청 접수</button></div>
+                    </form>
+                  ) : (
+                    <div className="empty-state"><strong>로그인과 이메일 인증이 필요합니다.</strong><p>회원가입 후 받은 인증 메일을 먼저 확인하세요.</p></div>
+                  )
+                ) : null}
               </div>
             </article>
           ))}
@@ -477,12 +693,15 @@ function AdminDashboard({
 function EventsPage({
   data,
   selectedEvent,
-  onCreateEvent
+  onCreateEvent,
+  onApplicationStatus
 }: {
   data: DashboardResponse;
   selectedEvent?: DreamEvent;
   onCreateEvent: (event: FormEvent<HTMLFormElement>) => void;
+  onApplicationStatus: (applicationId: string, status: DreamApplication["status"]) => void;
 }) {
+  const selectedApplications = selectedEvent ? data.applications.filter((application) => application.eventId === selectedEvent.id) : data.applications;
   return (
     <section className="panel">
       <SectionHead title="행사 운영" text="선생님 화면에 노출될 모집중 행사 정보를 등록합니다." />
@@ -513,6 +732,44 @@ function EventsPage({
           </div>
         ) : (
           <EmptyState title="아직 등록된 행사가 없습니다." text="첫 실제 꿈프 행사를 등록해 주세요." />
+        )}
+      </div>
+
+      <div className="sub-panel">
+        <h3>신청/선정 관리</h3>
+        {selectedApplications.length ? (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>학교</th>
+                  <th>소속/팀명</th>
+                  <th>예상 작품</th>
+                  <th>상태</th>
+                  <th>처리</th>
+                </tr>
+              </thead>
+              <tbody>
+                {selectedApplications.map((application) => (
+                  <tr key={application.id}>
+                    <td>{application.schoolName}</td>
+                    <td>{application.affiliationName}</td>
+                    <td>{application.expectedSubmissionCount}편</td>
+                    <td>{applicationStatusLabels[application.status]}</td>
+                    <td>
+                      <div className="button-row">
+                        <button className="ghost-button" onClick={() => onApplicationStatus(application.id, "SELECTED")} type="button">선정</button>
+                        <button className="ghost-button" onClick={() => onApplicationStatus(application.id, "WAITLISTED")} type="button">예비</button>
+                        <button className="ghost-button" onClick={() => onApplicationStatus(application.id, "NOT_SELECTED")} type="button">미선정</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <EmptyState title="접수된 신청이 없습니다." text="선생님 화면에서 신청하면 이곳에서 선정 처리할 수 있습니다." />
         )}
       </div>
     </section>
@@ -567,10 +824,38 @@ function BenefitsPage({ data, onCouponUpload }: { data: DashboardResponse; onCou
 }
 
 function DocumentsPage({ data, onTemplateUpload }: { data: DashboardResponse; onTemplateUpload: (file?: File) => void }) {
+  const firstSelectedApplication = data.applications.find((application) => application.status === "SELECTED");
+  const works = firstSelectedApplication
+    ? data.submissions.filter((work) => work.applicationId === firstSelectedApplication.id).map((work) => work.title).filter(Boolean)
+    : [];
+  async function downloadCertificate() {
+    if (!firstSelectedApplication) return;
+    const response = await fetch("/api/certificates/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        schoolName: firstSelectedApplication.schoolName,
+        teacherName: data.teachers.find((teacher) => teacher.id === firstSelectedApplication.teacherProfileId)?.teacherName || "",
+        works
+      })
+    });
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "activity-certificate.pdf";
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
   return (
     <section className="panel">
       <SectionHead title="활동확인서" text="관리자가 업로드한 템플릿을 저장하고 발급 준비 상태를 확인합니다." />
-      <UploadButton label="확인서 템플릿 업로드" accept=".png,.jpg,.jpeg,.pdf" onFile={onTemplateUpload} />
+      <div className="button-row">
+        <UploadButton label="확인서 템플릿 업로드" accept=".png,.jpg,.jpeg,.pdf" onFile={onTemplateUpload} />
+        <button className="primary-button" disabled={!firstSelectedApplication} onClick={downloadCertificate} type="button">
+          샘플 확인서 PDF 생성
+        </button>
+      </div>
       {data.certificateTemplates.length ? (
         <div className="compact-list">
           {data.certificateTemplates.map((template) => (
@@ -587,11 +872,30 @@ function DocumentsPage({ data, onTemplateUpload }: { data: DashboardResponse; on
   );
 }
 
-function MailsPage() {
+function MailsPage({ data, onSubmit }: { data: DashboardResponse; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+  const selectedEmails = data.applications
+    .filter((application) => application.status === "SELECTED")
+    .map((application) => data.teachers.find((teacher) => teacher.id === application.teacherProfileId)?.email)
+    .filter(Boolean)
+    .join("\n");
   return (
     <section className="panel">
-      <SectionHead title="메일/공지" text="D-14, D-10, D-5, D-1 안내와 발송 전 검수 기능이 들어갈 영역입니다." />
-      <EmptyState title="메일 템플릿은 아직 등록되지 않았습니다." text="운영 메일은 발송 전 관리자 확인/수정 후 예약 발송하는 구조로 확장합니다." />
+      <SectionHead title="메일/공지" text="선정 학교 안내, 출품 리마인드, 확인서 발급 공지를 저장하거나 Gmail SMTP로 즉시 발송합니다." />
+      <form className="form-grid" onSubmit={onSubmit}>
+        <label className="wide">수신자 이메일<textarea name="recipientEmails" rows={4} defaultValue={selectedEmails} placeholder="teacher@example.com&#10;teacher2@example.com" required /></label>
+        <label className="wide">제목<input name="subject" required placeholder="예: 꿈프 선정 및 출품 안내" /></label>
+        <label className="wide">본문<textarea name="body" rows={8} required placeholder="발송 전 관리자가 검수할 메일 본문" /></label>
+        <label>예약 시각<input name="scheduledAt" type="datetime-local" /></label>
+        <label className="checkbox-line"><input name="sendNow" type="checkbox" /> 즉시 발송</label>
+        <div className="form-actions">
+          <button className="primary-button" type="submit">메일 저장/발송</button>
+          {selectedEmails ? (
+            <a className="ghost-button" href={`mailto:?bcc=${encodeURIComponent(selectedEmails.replace(/\n/g, ","))}`}>
+              메일앱 열기
+            </a>
+          ) : null}
+        </div>
+      </form>
     </section>
   );
 }

@@ -6,8 +6,11 @@ export type EventStatus =
   | "SELECTING"
   | "SUBMISSION_RUNNING"
   | "FINAL_REVIEW"
+  | "CERTIFICATE_RUNNING"
   | "CERTIFICATE_READY"
+  | "SCORE_REPORT_RUNNING"
   | "SCORE_READY"
+  | "READY_TO_CLOSE"
   | "CLOSED";
 
 export type MatchStatus = "MATCHED" | "NEEDS_REVIEW" | "MISSING";
@@ -125,8 +128,11 @@ export const statusLabels: Record<EventStatus, string> = {
   SELECTING: "선정중",
   SUBMISSION_RUNNING: "출품 확인",
   FINAL_REVIEW: "최종 확인",
+  CERTIFICATE_RUNNING: "확인서 발급",
   CERTIFICATE_READY: "확인서 발급",
+  SCORE_REPORT_RUNNING: "심사표 반영",
   SCORE_READY: "심사표 공개",
+  READY_TO_CLOSE: "종료 준비",
   CLOSED: "종료"
 };
 

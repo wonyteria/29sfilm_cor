@@ -10,10 +10,12 @@
     "dev": "npm run dev --workspace @29with/web",
     "dev:web": "npm run dev --workspace @29with/web",
     "dev:api": "npm run start:dev --workspace @29with/api",
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run db:generate && npm run build --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "db:generate": "npm run generate --workspace @29with/database"
+    "db:generate": "npm run generate --workspace @29with/database",
+    "db:push": "prisma db push --schema packages/database/prisma/schema.prisma",
+    "vercel-build": "npm run db:generate && npm run build --workspace @29with/web"
   },
   "devDependencies": {
     "typescript": "^5.5.4"
