@@ -278,15 +278,15 @@ export default function HomePage() {
             <span>29</span>
             <div>
               <strong>29 WITH</strong>
-              <small>영상 꿈나무 양성 프로젝트 운영 플랫폼</small>
+              <small>영상 꿈나무 양성 프로젝트</small>
             </div>
           </div>
-          <h1>꿈프 신청과 운영을 한 곳에서 관리합니다.</h1>
-          <p>선생님은 신청, 출품 확인, 혜택과 문서를 확인하고 관리자는 행사 운영부터 선정, 엑셀 매칭, 메일 발송까지 처리합니다.</p>
+          <h1>영상을 꿈꾸는 학생들 곁의 선생님을 위한 공간입니다.</h1>
+          <p>꿈나무 양성 프로젝트는 학생들이 직접 만들고 출품하는 과정을 학교 현장에서 이끌어 주시는 선생님을 지원하기 위해 운영됩니다.</p>
           <div className="login-highlights">
-            <span>선생님 전용 회원가입</span>
-            <span>관리자 고정 계정 로그인</span>
-            <span>출품 엑셀 자동 매칭</span>
+            <span>꿈프 신청</span>
+            <span>출품 현황 확인</span>
+            <span>활동확인서와 지원 안내</span>
           </div>
         </section>
         <section className="login-panel-wrap">
