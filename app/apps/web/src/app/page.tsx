@@ -210,11 +210,6 @@ export default function HomePage() {
     }
   }
 
-  async function handleTemplateUpload(file?: File) {
-    if (!file) return;
-    await postJson("/api/certificate-templates", { fileName: file.name, dataUrl: await fileToDataUrl(file) }, "활동확인서 템플릿을 저장했습니다.");
-  }
-
   async function handleApply(eventItem: DreamEvent, formData: FormData) {
     await postJson(
       "/api/applications",
@@ -351,7 +346,7 @@ export default function HomePage() {
         {!isLoading && mode === "admin" && adminPage === "applications" ? <ApplicationsPage data={data} selectedEvent={selectedEvent} onApplicationStatus={handleApplicationStatus} /> : null}
         {!isLoading && mode === "admin" && adminPage === "submissions" ? <SubmissionsPage data={data} selectedEvent={selectedEvent} onUpload={handleSubmissionUpload} /> : null}
         {!isLoading && mode === "admin" && adminPage === "benefits" ? <BenefitsPage data={data} onCouponUpload={handleCouponUpload} /> : null}
-        {!isLoading && mode === "admin" && adminPage === "documents" ? <DocumentsPage data={data} onTemplateUpload={handleTemplateUpload} /> : null}
+        {!isLoading && mode === "admin" && adminPage === "documents" ? <DocumentsPage data={data} selectedEvent={selectedEvent} /> : null}
         {!isLoading && mode === "admin" && adminPage === "mails" ? <MailsPage data={data} onSubmit={handleMailSubmit} /> : null}
         {!isLoading && mode === "admin" && adminPage === "history" ? <HistoryPage data={data} /> : null}
       </section>
@@ -625,25 +620,49 @@ function BenefitsPage({ data, onCouponUpload }: { data: DashboardResponse; onCou
   );
 }
 
-function DocumentsPage({ data, onTemplateUpload }: { data: DashboardResponse; onTemplateUpload: (file?: File) => void }) {
-  const firstSelectedApplication = data.applications.find((application) => application.status === "SELECTED");
-  const works = firstSelectedApplication ? data.submissions.filter((work) => work.applicationId === firstSelectedApplication.id).map((work) => work.title).filter(Boolean) : [];
+function DocumentsPage({ data, selectedEvent }: { data: DashboardResponse; selectedEvent?: DreamEvent }) {
+  const selectedApplications = data.applications.filter((application) => application.status === "SELECTED" && (!selectedEvent || application.eventId === selectedEvent.id));
+  const firstSelectedApplication = selectedApplications[0];
+  const eventItem = data.events.find((event) => event.id === firstSelectedApplication?.eventId);
+  const matchedWorks = firstSelectedApplication ? data.submissions.filter((work) => work.applicationId === firstSelectedApplication.id) : [];
   async function downloadCertificate() {
     if (!firstSelectedApplication) return;
-    const response = await fetch("/api/certificates/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ schoolName: firstSelectedApplication.schoolName, teacherName: data.teachers.find((teacher) => teacher.id === firstSelectedApplication.teacherProfileId)?.teacherName || "", works }) });
+    const response = await fetch("/api/certificates/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        certificateNo: String(Date.now()).slice(-4),
+        schoolName: firstSelectedApplication.schoolName,
+        teacherName: data.teachers.find((teacher) => teacher.id === firstSelectedApplication.teacherProfileId)?.teacherName || "",
+        eventTitle: eventItem?.title || "영상 꿈나무 양성 프로젝트",
+        activityPeriod: eventItem?.contestPeriod || "",
+        works: matchedWorks.map((work) => ({ title: work.title, participantName: work.participantName }))
+      })
+    });
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = "activity-certificate.pdf";
+    anchor.download = `${firstSelectedApplication.schoolName}-activity-certificate.pdf`;
     anchor.click();
     URL.revokeObjectURL(url);
   }
   return (
     <section className="panel">
-      <SectionHead title="활동확인서" text="관리자가 업로드한 템플릿을 저장하고 발급 준비 상태를 확인합니다." />
-      <div className="button-row"><UploadButton label="확인서 템플릿 업로드" accept=".png,.jpg,.jpeg,.pdf" onFile={onTemplateUpload} /><button className="primary-button" disabled={!firstSelectedApplication} onClick={downloadCertificate} type="button">샘플 확인서 PDF 생성</button></div>
-      {data.certificateTemplates.length ? <div className="compact-list">{data.certificateTemplates.map((template) => <div className="compact-row" key={template.id}><strong>{template.fileName}</strong><span>{new Date(template.uploadedAt).toLocaleString("ko-KR")}</span></div>)}</div> : <EmptyState title="등록된 활동확인서 템플릿이 없습니다." text="최종 디자인 파일을 업로드하면 발급 기준 템플릿으로 저장됩니다." />}
+      <SectionHead title="활동확인서" text="고정 활동확인서 양식에 학교명, 작품명, 학생명, 활동 기간을 자동으로 넣어 PDF를 발급합니다." />
+      {firstSelectedApplication ? (
+        <div className="compact-list">
+          <div className="compact-row">
+            <div>
+              <strong>{firstSelectedApplication.schoolName}</strong>
+              <small>{eventItem?.title || "선택된 행사"} · 확인 작품 {matchedWorks.length}편</small>
+            </div>
+            <button className="primary-button" onClick={downloadCertificate} type="button">활동확인서 PDF 발급</button>
+          </div>
+        </div>
+      ) : (
+        <EmptyState title="발급 가능한 선정 학교가 없습니다." text="신청/선정에서 학교를 선정하고 출품 확인이 완료되면 활동확인서를 발급할 수 있습니다." />
+      )}
     </section>
   );
 }
