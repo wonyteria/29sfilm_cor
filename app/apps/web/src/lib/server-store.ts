@@ -25,6 +25,7 @@ import {
 
 const emptyState: AppState = {
   events: [],
+  registeredTeachers: [],
   teachers: [],
   applications: [],
   submissions: [],
@@ -138,6 +139,7 @@ export async function addCoupons(couponNumbers: string[], upload?: { fileName?: 
     status: "UNUSED",
     uploadedAt: now()
   }));
+  if (!coupons.length) throw new Error("새로 등록할 쿠폰 번호가 없습니다. 중복 번호 또는 파일 형식을 확인해 주세요.");
 
   state.coupons.unshift(...coupons);
   state.notices.unshift(makeNotice("쿠폰 업로드", `쿠폰 번호 ${coupons.length}개를 인식했습니다.`));
@@ -169,10 +171,14 @@ export async function analyzeSubmissions(
   const event = state.events.find((item) => item.id === eventId);
   if (!event) throw new Error("행사를 찾을 수 없습니다.");
 
-  const applications = state.applications.filter((application) => application.eventId === eventId);
+  const applications = state.applications.filter((application) => application.eventId === eventId && application.status === "SELECTED");
+  if (!applications.length) throw new Error("선정된 학교가 없습니다. 신청/선정을 먼저 완료해 주세요.");
   const works = rows
     .map((row) => normalizeSubmissionRow(eventId, row, applications))
     .filter((work) => work.affiliationName || work.title || work.participantName);
+  if (!works.length || !works.some((work) => work.affiliationName)) {
+    throw new Error("엑셀에서 소속/소속명/팀명 열을 찾지 못했습니다. 파일의 첫 행 제목을 확인해 주세요.");
+  }
 
   state.submissions = state.submissions.filter((work) => work.eventId !== eventId).concat(rankWorks(works));
   state.notices.unshift(
@@ -193,11 +199,15 @@ export async function addApplication(input: {
   phone?: string;
   affiliationName: string;
   expectedSubmissionCount: number;
+  plannedSubmissionDate?: string;
   usagePlan?: string;
   memo?: string;
 }) {
   if (isDatabaseConfigured()) return addDbApplication(input);
   const state = await readState();
+  if (state.applications.some((application) => application.eventId === input.eventId && application.teacherProfileId === state.teachers.find((teacher) => teacher.email === input.email)?.id)) {
+    throw new Error("이미 신청한 행사입니다. 신청 현황에서 상태를 확인해 주세요.");
+  }
   const teacher =
     state.teachers.find((item) => item.email === input.email) ??
     ({
@@ -218,7 +228,7 @@ export async function addApplication(input: {
     affiliationName: input.affiliationName,
     expectedSubmissionCount: Math.max(1, input.expectedSubmissionCount || 1),
     usagePlan: input.usagePlan || "",
-    plannedSubmissionDate: "",
+    plannedSubmissionDate: input.plannedSubmissionDate || "",
     memo: input.memo || "",
     status: "SUBMITTED",
     createdAt: now()
@@ -234,9 +244,68 @@ export async function updateApplicationStatus(applicationId: string, status: "SE
   const application = state.applications.find((item) => item.id === applicationId);
   if (!application) throw new Error("신청을 찾을 수 없습니다.");
   application.status = status;
+  if (status === "SELECTED") {
+    const coupon = state.coupons.find((item) => item.status === "UNUSED");
+    if (coupon) {
+      coupon.status = "ASSIGNED";
+      coupon.assignedApplicationId = application.id;
+    }
+  }
   state.notices.unshift(makeNotice("신청 상태 변경", `${application.schoolName} 신청을 ${status} 처리했습니다.`));
   await writeState(state);
   return buildDashboard(state);
+}
+
+export async function updateEventStatus(eventId: string, status: DreamEvent["status"]) {
+  if (isDatabaseConfigured()) {
+    const { updateDbEventStatus } = await import("./db-store");
+    return updateDbEventStatus(eventId, status);
+  }
+  const state = await readState();
+  const event = state.events.find((item) => item.id === eventId);
+  if (!event) throw new Error("행사를 찾을 수 없습니다.");
+  assertNextEventStatus(event.status, status);
+  event.status = status;
+  state.notices.unshift(makeNotice("행사 단계 변경", `${event.title} 상태를 ${status} 단계로 변경했습니다.`));
+  await writeState(state);
+  return buildDashboard(state);
+}
+
+export async function confirmSubmissionMatch(externalSubmissionId: string, applicationId: string) {
+  if (isDatabaseConfigured()) {
+    const { confirmDbSubmissionMatch } = await import("./db-store");
+    return confirmDbSubmissionMatch(externalSubmissionId, applicationId);
+  }
+  const state = await readState();
+  const work = state.submissions.find((item) => item.id === externalSubmissionId);
+  const application = state.applications.find((item) => item.id === applicationId);
+  if (!work || !application || work.eventId !== application.eventId) throw new Error("매칭할 신청 정보를 찾을 수 없습니다.");
+  work.applicationId = application.id;
+  work.schoolName = application.schoolName;
+  work.matchStatus = "MATCHED";
+  work.matchReason = "관리자가 신청 학교와 출품작을 직접 확인했습니다.";
+  state.notices.unshift(makeNotice("출품 수동 매칭", `${application.schoolName} · ${work.title}`));
+  await writeState(state);
+  return buildDashboard(state);
+}
+
+const eventStatusSequence: DreamEvent["status"][] = [
+  "PREPARING",
+  "RECRUITING",
+  "SELECTING",
+  "SUBMISSION_RUNNING",
+  "FINAL_REVIEW",
+  "CERTIFICATE_RUNNING",
+  "SCORE_REPORT_RUNNING",
+  "READY_TO_CLOSE",
+  "CLOSED"
+];
+
+function assertNextEventStatus(current: DreamEvent["status"], next: DreamEvent["status"]) {
+  const currentIndex = eventStatusSequence.indexOf(current);
+  if (eventStatusSequence[currentIndex + 1] !== next) {
+    throw new Error("행사 단계는 운영 순서에 따라 한 단계씩 변경할 수 있습니다.");
+  }
 }
 
 function normalizeSubmissionRow(
@@ -250,8 +319,14 @@ function normalizeSubmissionRow(
   const submissionUrl = text(pick(row, ["출품 URL", "출품URL", "보기 URL", "영상 URL", "URL", "url", "링크"]));
   const score = number(pick(row, ["예심평점", "평점", "일반평점", "score"]));
   const finalResult = text(pick(row, ["수상결과", "본심", "finalResult"]));
-  const exact = applications.find((application) => application.affiliationName === affiliationName);
-  const similar = exact ? undefined : applications.find((application) => isSimilar(application.affiliationName, affiliationName));
+  const exact = applications.find(
+    (application) => application.affiliationName === affiliationName || application.schoolName === affiliationName
+  );
+  const similar = exact
+    ? undefined
+    : applications.find(
+        (application) => isSimilar(application.affiliationName, affiliationName) || isSimilar(application.schoolName, affiliationName)
+      );
 
   return {
     id: id("work"),

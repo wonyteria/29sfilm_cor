@@ -7,9 +7,7 @@ export type EventStatus =
   | "SUBMISSION_RUNNING"
   | "FINAL_REVIEW"
   | "CERTIFICATE_RUNNING"
-  | "CERTIFICATE_READY"
   | "SCORE_REPORT_RUNNING"
-  | "SCORE_READY"
   | "READY_TO_CLOSE"
   | "CLOSED";
 
@@ -40,6 +38,15 @@ export type TeacherProfile = {
   affiliationName: string;
   verificationFileName?: string;
   trustStatus: "BENEFIT" | "NORMAL" | "PENALTY";
+};
+
+export type RegisteredTeacher = {
+  id: string;
+  name: string;
+  email: string;
+  status: string;
+  createdAt: string;
+  profileId?: string;
 };
 
 export type DreamApplication = {
@@ -98,6 +105,7 @@ export type AdminNotice = {
 
 export type AppState = {
   events: DreamEvent[];
+  registeredTeachers: RegisteredTeacher[];
   teachers: TeacherProfile[];
   applications: DreamApplication[];
   submissions: SubmissionWork[];
@@ -129,9 +137,7 @@ export const statusLabels: Record<EventStatus, string> = {
   SUBMISSION_RUNNING: "출품 확인",
   FINAL_REVIEW: "최종 확인",
   CERTIFICATE_RUNNING: "확인서 발급",
-  CERTIFICATE_READY: "확인서 완료",
   SCORE_REPORT_RUNNING: "심사 반영",
-  SCORE_READY: "심사 공개",
   READY_TO_CLOSE: "종료 준비",
   CLOSED: "종료"
 };

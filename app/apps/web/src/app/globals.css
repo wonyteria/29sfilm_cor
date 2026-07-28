@@ -607,12 +607,24 @@ textarea {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(360px, auto);
   gap: 18px;
+  width: 100%;
+  border: 1px solid #dce4ef;
+  border-radius: 8px;
+  background: white;
+  color: inherit;
   padding: 16px;
+  text-align: left;
+  cursor: pointer;
 }
 
 .event-summary-card.active {
   border-color: #9eb4f4;
   background: #f4f7ff;
+}
+
+.event-summary-card:hover,
+.event-row-button:hover {
+  border-color: #9eb4f4;
 }
 
 .event-summary-card h3 {
@@ -650,6 +662,16 @@ textarea {
 
 .event-row small {
   margin-top: 5px;
+}
+
+.event-row-button {
+  display: flex;
+  justify-content: space-between;
+  border: 1px solid #dce4ef;
+  border-radius: 8px;
+  background: white;
+  color: inherit;
+  cursor: pointer;
 }
 
 .status-pill {
@@ -704,6 +726,24 @@ textarea {
 .form-grid .wide,
 .form-actions {
   grid-column: 1 / -1;
+}
+
+.form-grid .application-confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid #f3d08a;
+  border-radius: 8px;
+  background: #fffbeb;
+  padding: 12px;
+  color: #78350f;
+  line-height: 1.5;
+}
+
+.application-confirm input {
+  width: 18px;
+  min-height: 18px;
+  margin-top: 2px;
 }
 
 .form-actions {
@@ -952,6 +992,111 @@ th {
   font-weight: 800;
 }
 
+.attention-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  border-left: 3px solid #f59e0b;
+  background: #fffbeb;
+  padding: 12px 14px;
+  color: #92400e;
+}
+
+.workflow-panel {
+  display: grid;
+  grid-template-columns: minmax(170px, auto) minmax(240px, 1fr) auto;
+  align-items: center;
+  gap: 20px;
+  margin-top: 16px;
+  border: 1px solid #dce4ef;
+  border-radius: 8px;
+  background: white;
+  padding: 16px;
+}
+
+.workflow-panel > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.workflow-panel span,
+.workflow-panel small {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.workflow-panel strong {
+  font-size: 18px;
+}
+
+.workflow-track {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(12px, 1fr));
+  gap: 5px;
+}
+
+.workflow-track span {
+  height: 6px;
+  border-radius: 3px;
+  background: #e5eaf1;
+}
+
+.workflow-track span.complete {
+  background: #3657d6;
+}
+
+.document-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.document-row {
+  display: flex;
+  min-height: 72px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid #e5ebf4;
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.document-row strong,
+.document-row small {
+  display: block;
+}
+
+.document-row small {
+  margin-top: 5px;
+  color: #64748b;
+}
+
+.cell-note {
+  display: block;
+  max-width: 240px;
+  margin-top: 4px;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+.match-control {
+  display: grid;
+  min-width: 230px;
+  gap: 7px;
+}
+
+.success-text {
+  color: #0f8a5f;
+  font-weight: 800;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 @media (max-width: 1180px) {
   .teacher-status-grid,
   .metric-grid {
@@ -1038,5 +1183,14 @@ th {
 
   .poster-uploader {
     position: static;
+  }
+
+  .workflow-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .document-row {
+    align-items: stretch;
+    flex-direction: column;
   }
 }

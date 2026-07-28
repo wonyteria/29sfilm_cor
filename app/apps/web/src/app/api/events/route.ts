@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { addEvent } from "@/lib/server-store";
+import { addEvent, updateEventStatus } from "@/lib/server-store";
 import { requireAdmin } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -26,4 +26,17 @@ export async function POST(request: Request) {
     status: body.status
   });
   return NextResponse.json(dashboard);
+}
+
+export async function PATCH(request: Request) {
+  try {
+    await requireAdmin();
+    const body = await request.json();
+    return NextResponse.json(await updateEventStatus(String(body.eventId || ""), body.status));
+  } catch (error) {
+    return NextResponse.json(
+      { message: error instanceof Error ? error.message : "행사 단계를 변경하지 못했습니다." },
+      { status: 400 }
+    );
+  }
 }

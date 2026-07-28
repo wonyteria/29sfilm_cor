@@ -32,8 +32,32 @@ const adminPages: Array<{ key: AdminPage; label: string }> = [
   { key: "history", label: "히스토리" }
 ];
 
+const eventWorkflow: DreamEvent["status"][] = [
+  "PREPARING",
+  "RECRUITING",
+  "SELECTING",
+  "SUBMISSION_RUNNING",
+  "FINAL_REVIEW",
+  "CERTIFICATE_RUNNING",
+  "SCORE_REPORT_RUNNING",
+  "READY_TO_CLOSE",
+  "CLOSED"
+];
+
+const nextActionLabels: Partial<Record<DreamEvent["status"], string>> = {
+  PREPARING: "모집 시작",
+  RECRUITING: "신청 마감·선정 시작",
+  SELECTING: "선정 완료·출품 확인 시작",
+  SUBMISSION_RUNNING: "출품 마감·최종 검토",
+  FINAL_REVIEW: "출품 리스트 승인·확인서 발급",
+  CERTIFICATE_RUNNING: "심사 결과 반영",
+  SCORE_REPORT_RUNNING: "종료 검토",
+  READY_TO_CLOSE: "꿈프 종료"
+};
+
 const emptyDashboard: DashboardResponse = {
   events: [],
+  registeredTeachers: [],
   teachers: [],
   applications: [],
   submissions: [],
@@ -50,15 +74,6 @@ const emptyDashboard: DashboardResponse = {
   }
 };
 
-const teacherSnapshot = {
-  name: "",
-  school: "",
-  email: "",
-  phone: "",
-  trust: "일반",
-  affiliation: ""
-};
-
 export default function HomePage() {
   const [data, setData] = useState<DashboardResponse>(emptyDashboard);
   const [mode, setMode] = useState<ViewMode>("teacher");
@@ -71,8 +86,11 @@ export default function HomePage() {
   const [authPanel, setAuthPanel] = useState<"login" | "signup">("login");
 
   useEffect(() => {
-    void loadDashboard();
-    void loadSession();
+    void (async () => {
+      const user = await loadSession();
+      if (user) await loadDashboard();
+      else setIsLoading(false);
+    })();
   }, []);
 
   useEffect(() => {
@@ -84,18 +102,19 @@ export default function HomePage() {
   async function loadDashboard() {
     setIsLoading(true);
     const response = await fetch("/api/dashboard", { cache: "no-store" });
-    setData(await response.json());
+    if (response.ok) setData(await response.json());
     setIsLoading(false);
   }
 
   async function loadSession() {
     const response = await fetch("/api/auth/me", { cache: "no-store" });
-    if (!response.ok) return;
+    if (!response.ok) return null;
     const body = (await response.json()) as { user?: SessionUser | null };
     if (body.user) {
       setCurrentUser(body.user);
       setMode(body.user.userType === "ADMIN" ? "admin" : "teacher");
     }
+    return body.user ?? null;
   }
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
@@ -115,6 +134,7 @@ export default function HomePage() {
     setMode(body.user.userType === "ADMIN" ? "admin" : "teacher");
     setAuthPanel("login");
     setMessage("");
+    await loadDashboard();
   }
 
   async function handleSignup(event: FormEvent<HTMLFormElement>) {
@@ -138,6 +158,7 @@ export default function HomePage() {
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
     setCurrentUser(null);
+    setData(emptyDashboard);
     setMode("teacher");
     setMessage("");
   }
@@ -224,6 +245,7 @@ export default function HomePage() {
         phone: formData.get("phone"),
         affiliationName: formData.get("affiliationName"),
         expectedSubmissionCount: Number(formData.get("expectedSubmissionCount") || 1),
+        plannedSubmissionDate: formData.get("plannedSubmissionDate"),
         usagePlan: formData.get("usagePlan"),
         memo: formData.get("memo")
       },
@@ -234,6 +256,19 @@ export default function HomePage() {
 
   async function handleApplicationStatus(applicationId: string, status: DreamApplication["status"]) {
     await postJson("/api/applications", { applicationId, status }, "신청 상태를 변경했습니다.", "PATCH");
+  }
+
+  async function handleEventStatus(eventId: string, status: DreamEvent["status"]) {
+    await postJson("/api/events", { eventId, status }, "행사 운영 단계를 변경했습니다.", "PATCH");
+  }
+
+  async function handleConfirmMatch(externalSubmissionId: string, applicationId: string) {
+    await postJson(
+      "/api/submissions/analyze",
+      { externalSubmissionId, applicationId },
+      "출품작과 신청 학교의 매칭을 확정했습니다.",
+      "PATCH"
+    );
   }
 
   async function handleMailSubmit(event: FormEvent<HTMLFormElement>) {
@@ -345,11 +380,11 @@ export default function HomePage() {
         {isLoading ? <section className="panel">불러오는 중입니다.</section> : null}
 
         {!isLoading && mode === "teacher" ? <TeacherPortal page={teacherPage} data={data} setPage={setTeacherPage} onApply={handleApply} currentUser={currentUser} /> : null}
-        {!isLoading && mode === "admin" && adminPage === "dashboard" ? <AdminDashboard data={data} selectedEvent={selectedEvent} setPage={setAdminPage} /> : null}
-        {!isLoading && mode === "admin" && adminPage === "events" ? <EventsPage data={data} selectedEvent={selectedEvent} onCreateEvent={handleCreateEvent} /> : null}
+        {!isLoading && mode === "admin" && adminPage === "dashboard" ? <AdminDashboard data={data} selectedEvent={selectedEvent} setPage={setAdminPage} onSelectEvent={setSelectedEventId} onEventStatus={handleEventStatus} /> : null}
+        {!isLoading && mode === "admin" && adminPage === "events" ? <EventsPage data={data} selectedEvent={selectedEvent} onCreateEvent={handleCreateEvent} onSelectEvent={setSelectedEventId} onEventStatus={handleEventStatus} /> : null}
         {!isLoading && mode === "admin" && adminPage === "teachers" ? <TeachersDbPage data={data} selectedEvent={selectedEvent} /> : null}
         {!isLoading && mode === "admin" && adminPage === "applications" ? <ApplicationsPage data={data} selectedEvent={selectedEvent} onApplicationStatus={handleApplicationStatus} /> : null}
-        {!isLoading && mode === "admin" && adminPage === "submissions" ? <SubmissionsPage data={data} selectedEvent={selectedEvent} onUpload={handleSubmissionUpload} /> : null}
+        {!isLoading && mode === "admin" && adminPage === "submissions" ? <SubmissionsPage data={data} selectedEvent={selectedEvent} onUpload={handleSubmissionUpload} onConfirmMatch={handleConfirmMatch} /> : null}
         {!isLoading && mode === "admin" && adminPage === "benefits" ? <BenefitsPage data={data} onCouponUpload={handleCouponUpload} /> : null}
         {!isLoading && mode === "admin" && adminPage === "documents" ? <DocumentsPage data={data} selectedEvent={selectedEvent} /> : null}
         {!isLoading && mode === "admin" && adminPage === "mails" ? <MailsPage data={data} selectedEvent={selectedEvent} onSubmit={handleMailSubmit} /> : null}
@@ -360,18 +395,17 @@ export default function HomePage() {
 }
 
 function TeacherPortal({ page, data, setPage, onApply, currentUser }: { page: TeacherPage; data: DashboardResponse; setPage: (page: TeacherPage) => void; onApply: (eventItem: DreamEvent, formData: FormData) => void; currentUser: SessionUser | null }) {
-  const teacherApplications = data.applications.filter((application) => {
-    if (!teacherSnapshot.school && !teacherSnapshot.affiliation) return true;
-    return normalize(application.schoolName) === normalize(teacherSnapshot.school) || normalize(application.affiliationName) === normalize(teacherSnapshot.affiliation);
-  });
+  const teacherApplications = data.applications;
   const availableEvents = data.events.filter((event) => event.status === "RECRUITING");
-  const teacherWorks = data.submissions.filter((work) => !teacherSnapshot.affiliation || normalize(work.affiliationName) === normalize(teacherSnapshot.affiliation));
+  const teacherWorks = data.submissions;
+  const profile = data.teachers[0];
+  const trustLabel = profile?.trustStatus === "BENEFIT" ? "우선 선정" : profile?.trustStatus === "PENALTY" ? "선정 후순위" : "일반";
 
   if (page === "available") return <TeacherAvailableEvents events={availableEvents} onApply={onApply} currentUser={currentUser} />;
   if (page === "works") return <TeacherWorks works={teacherWorks} events={data.events} />;
   if (page === "benefits") return <TeacherBenefits data={data} applications={teacherApplications} />;
-  if (page === "docs") return <TeacherDocuments works={teacherWorks} events={data.events} />;
-  if (page === "profile") return <TeacherProfilePanel />;
+  if (page === "docs") return <TeacherDocuments works={teacherWorks} events={data.events} applications={teacherApplications} />;
+  if (page === "profile") return <TeacherProfilePanel profile={profile} currentUser={currentUser} />;
 
   return (
     <>
@@ -387,8 +421,8 @@ function TeacherPortal({ page, data, setPage, onApply, currentUser }: { page: Te
       <section className="teacher-status-grid">
         <TeacherStatusCard icon={<Home size={19} />} label="내 신청" value={`${teacherApplications.length}건`} text="접수 또는 선정된 꿈프 신청" />
         <TeacherStatusCard icon={<CheckCircle2 size={19} />} label="출품 확인" value={`${teacherWorks.length}편`} text="관리자 엑셀 분석 후 표시" />
-        <TeacherStatusCard icon={<Gift size={19} />} label="참여 상태" value={teacherSnapshot.trust} text="패널티와 베네핏 이력 기준" />
-        <TeacherStatusCard icon={<Bell size={19} />} label="알림" value={`${data.notices.length}건`} text="발급, 요청 답변, 공지" />
+        <TeacherStatusCard icon={<Gift size={19} />} label="참여 상태" value={trustLabel} text="과거 참여 이력을 반영한 선정 기준" />
+        <TeacherStatusCard icon={<Bell size={19} />} label="확인할 일" value={`${teacherWorks.filter((work) => work.matchStatus !== "MATCHED").length}건`} text="출품 매칭 또는 문서 확인" />
       </section>
 
       <section className="panel teacher-panel">
@@ -467,6 +501,11 @@ function TeacherAvailableEvents({ events, onApply, currentUser }: { events: Drea
                       <label>연락처<input name="phone" placeholder="010-0000-0000" /></label>
                       <label>출품 소속명/팀명<input name="affiliationName" required placeholder="출품 엑셀의 소속/팀명과 정확히 동일하게 입력" /></label>
                       <label>예상 작품 수<input name="expectedSubmissionCount" required min="1" type="number" defaultValue={1} /></label>
+                      <label>출품 예정일<input name="plannedSubmissionDate" required type="date" /></label>
+                      <label className="wide application-confirm">
+                        <input required type="checkbox" />
+                        <span>학교명과 출품 소속명/팀명을 다시 확인했습니다. 실제 출품 정보와 다르면 자동 매칭되지 않을 수 있습니다.</span>
+                      </label>
                       <label className="wide">활용 계획<textarea name="usagePlan" rows={3} placeholder="수업 또는 동아리에서 어떻게 참여할지 입력" /></label>
                       <label className="wide">메모<textarea name="memo" rows={2} placeholder="관리자에게 전달할 내용" /></label>
                       <div className="form-actions"><button className="primary-button" type="submit">신청 접수</button></div>
@@ -491,39 +530,64 @@ function TeacherWorks({ works, events }: { works: SubmissionWork[]; events: Drea
 }
 
 function TeacherBenefits({ data, applications }: { data: DashboardResponse; applications: DreamApplication[] }) {
+  const assignedCoupons = data.coupons.filter((coupon) => coupon.status === "ASSIGNED");
   return (
     <section className="panel teacher-panel">
       <SectionHead title="혜택/지원" text="선정 후 지급되는 쿠폰, 간식비 안내, 운영 알림을 확인합니다." />
       <div className="metric-grid compact">
         <MetricCard label="내 선정 신청" value={`${applications.filter((item) => item.status === "SELECTED").length}건`} />
-        <MetricCard label="미사용 쿠폰 재고" value={`${data.stats.unusedCouponCount}개`} />
+        <MetricCard label="지급된 구독권" value={`${assignedCoupons.length}개`} />
         <MetricCard label="간식비 지급 예정" value="관리자 입력 대기" />
       </div>
-      <EmptyState title="지급 이력은 선정 후 표시됩니다." text="쿠폰 번호와 간식비 지급 예정일은 관리자 안내 메일과 이 화면에서 확인할 수 있습니다." />
+      {assignedCoupons.length ? (
+        <div className="compact-list">
+          {assignedCoupons.map((coupon) => <div className="compact-row" key={coupon.id}><strong>한국경제신문 구독권</strong><span>{coupon.couponNumber}</span></div>)}
+        </div>
+      ) : (
+        <EmptyState title="아직 지급된 혜택이 없습니다." text="선정 시 쿠폰 재고가 있으면 자동 지급되며 이 화면에 표시됩니다." />
+      )}
     </section>
   );
 }
 
-function TeacherDocuments({ works, events }: { works: SubmissionWork[]; events: DreamEvent[] }) {
-  return <section className="panel teacher-panel"><SectionHead title="활동확인서/심사표" text="관리자 승인 후 다운로드 가능한 문서와 심사 결과를 확인합니다." /><WorksTable works={works} events={events} emptyText="발급 가능한 문서가 아직 없습니다." /></section>;
+function TeacherDocuments({ works, events, applications }: { works: SubmissionWork[]; events: DreamEvent[]; applications: DreamApplication[] }) {
+  return (
+    <section className="panel teacher-panel">
+      <SectionHead title="활동확인서/심사표" text="행사별 출품 확인 결과와 발급 가능한 문서를 확인합니다." />
+      {applications.filter((application) => application.status === "SELECTED").length ? (
+        <div className="document-list">
+          {applications.filter((application) => application.status === "SELECTED").map((application) => {
+            const eventItem = events.find((event) => event.id === application.eventId);
+            const matchedWorks = works.filter((work) => work.applicationId === application.id && work.matchStatus === "MATCHED");
+            const canDownload = matchedWorks.length > 0 && ["CERTIFICATE_RUNNING", "SCORE_REPORT_RUNNING", "READY_TO_CLOSE", "CLOSED"].includes(eventItem?.status || "");
+            return (
+              <article className="document-row" key={application.id}>
+                <div><strong>{eventItem?.title || "행사"}</strong><small>{application.schoolName} · 출품 확인 {matchedWorks.length}편</small></div>
+                {canDownload ? <CertificateDownloadButton application={application} eventItem={eventItem} works={matchedWorks} /> : <span className="status-pill">관리자 최종 확인 대기</span>}
+              </article>
+            );
+          })}
+        </div>
+      ) : <EmptyState title="발급 가능한 문서가 아직 없습니다." text="선정 후 출품작 최종 확인이 완료되면 활동확인서를 받을 수 있습니다." />}
+    </section>
+  );
 }
 
-function TeacherProfilePanel() {
+function TeacherProfilePanel({ profile, currentUser }: { profile?: TeacherProfile; currentUser: SessionUser | null }) {
   return (
     <section className="panel teacher-panel">
       <SectionHead title="내 프로필" text="학교명과 출품 소속명은 매칭 기준이므로 변경 요청으로 관리합니다." />
       <div className="profile-grid">
-        <TeacherInfoCard label="학교명" value="미등록" text="첫 신청 시 입력" />
-        <TeacherInfoCard label="출품 소속명/팀명" value="미등록" text="출품 엑셀의 소속/팀명과 완전 일치 필요" />
-        <TeacherInfoCard label="연락처" value="미등록" text="업무용 이메일과 연락처 권장" />
-        <TeacherInfoCard label="교사 증빙" value="미등록" text="선생님 확인증 또는 재직 확인 자료" />
+        <TeacherInfoCard label="학교명" value={profile?.schoolName || "첫 신청 전"} text="신청 후 변경은 관리자 확인이 필요합니다." />
+        <TeacherInfoCard label="출품 소속명/팀명" value={profile?.affiliationName || "첫 신청 전"} text="출품 엑셀의 소속/팀명과 정확히 일치해야 합니다." />
+        <TeacherInfoCard label="연락처" value={profile?.phone || "미등록"} text={currentUser?.email || "업무용 이메일"} />
+        <TeacherInfoCard label="교사 증빙" value={profile?.verificationFileName || "미등록"} text="증빙 업로드 기능은 다음 운영 설정에서 활성화됩니다." />
       </div>
-      <div className="panel-action"><button className="ghost-button" type="button">프로필 수정</button><button className="ghost-button" type="button">학교명 변경 요청</button></div>
     </section>
   );
 }
 
-function AdminDashboard({ data, selectedEvent, setPage }: { data: DashboardResponse; selectedEvent?: DreamEvent; setPage: (page: AdminPage) => void }) {
+function AdminDashboard({ data, selectedEvent, setPage, onSelectEvent, onEventStatus }: { data: DashboardResponse; selectedEvent?: DreamEvent; setPage: (page: AdminPage) => void; onSelectEvent: (eventId: string) => void; onEventStatus: (eventId: string, status: DreamEvent["status"]) => void }) {
   const selectedApplications = selectedEvent ? data.applications.filter((item) => item.eventId === selectedEvent.id) : [];
   const selectedWorks = selectedEvent ? data.submissions.filter((item) => item.eventId === selectedEvent.id) : [];
   const selectedReview = selectedWorks.filter((item) => item.matchStatus !== "MATCHED").length;
@@ -539,7 +603,7 @@ function AdminDashboard({ data, selectedEvent, setPage }: { data: DashboardRespo
       <section className="panel">
         <SectionHead title="행사별 현황" />
         {data.events.length ? (
-          <div className="event-list">{data.events.map((event) => <EventSummaryCard key={event.id} event={event} applications={data.applications} works={data.submissions} selected={event.id === selectedEvent?.id} />)}</div>
+          <div className="event-list">{data.events.map((event) => <EventSummaryCard key={event.id} event={event} applications={data.applications} works={data.submissions} selected={event.id === selectedEvent?.id} onSelect={() => onSelectEvent(event.id)} />)}</div>
         ) : (
           <EmptyState title="등록된 꿈프 행사가 없습니다." text="새 행사를 등록해 주세요." />
         )}
@@ -555,11 +619,12 @@ function AdminDashboard({ data, selectedEvent, setPage }: { data: DashboardRespo
         <ActionCard icon={<Home size={18} />} title="선생님 DB" text="가입 선생님, 학교, 연락처, 참여 이력을 확인" onClick={() => setPage("teachers")} />
         <ActionCard icon={<Mail size={18} />} title="메일/공지 관리" text="예약 메일, 리마인드, 확인서 발급 안내를 작성" onClick={() => setPage("mails")} />
       </section> : null}
+      {selectedEvent ? <EventWorkflowBar eventItem={selectedEvent} onAdvance={onEventStatus} /> : null}
     </>
   );
 }
 
-function EventsPage({ data, selectedEvent, onCreateEvent }: { data: DashboardResponse; selectedEvent?: DreamEvent; onCreateEvent: (event: FormEvent<HTMLFormElement>) => Promise<void> | void }) {
+function EventsPage({ data, selectedEvent, onCreateEvent, onSelectEvent, onEventStatus }: { data: DashboardResponse; selectedEvent?: DreamEvent; onCreateEvent: (event: FormEvent<HTMLFormElement>) => Promise<void> | void; onSelectEvent: (eventId: string) => void; onEventStatus: (eventId: string, status: DreamEvent["status"]) => void }) {
   const [posterPreview, setPosterPreview] = useState("");
 
   function handlePosterChange(file?: File) {
@@ -601,19 +666,33 @@ function EventsPage({ data, selectedEvent, onCreateEvent }: { data: DashboardRes
       </form>
       <div className="sub-panel">
         <h3>등록된 행사</h3>
-        {data.events.length ? <div className="event-list">{data.events.map((event) => <div className={"event-row " + (selectedEvent?.id === event.id ? "active" : "")} key={event.id}><div><strong>{event.title}</strong><small>{eventTypeLabels[event.eventType]} · {event.contestPeriod || "기간 미입력"}</small></div><span className="status-pill success">{statusLabels[event.status]}</span></div>)}</div> : <EmptyState title="아직 등록된 행사가 없습니다." text="첫 꿈프 행사를 등록해 주세요." />}
+        {data.events.length ? <div className="event-list">{data.events.map((event) => <button className={"event-row event-row-button " + (selectedEvent?.id === event.id ? "active" : "")} key={event.id} onClick={() => onSelectEvent(event.id)} type="button"><div><strong>{event.title}</strong><small>{eventTypeLabels[event.eventType]} · {event.contestPeriod || "기간 미입력"}</small></div><span className="status-pill success">{statusLabels[event.status]}</span></button>)}</div> : <EmptyState title="아직 등록된 행사가 없습니다." text="첫 꿈프 행사를 등록해 주세요." />}
       </div>
+      {selectedEvent ? <EventWorkflowBar eventItem={selectedEvent} onAdvance={onEventStatus} /> : null}
     </section>
   );
 }
 
 function ApplicationsPage({ data, selectedEvent, onApplicationStatus }: { data: DashboardResponse; selectedEvent?: DreamEvent; onApplicationStatus: (applicationId: string, status: DreamApplication["status"]) => void }) {
-  const rows = selectedEvent ? data.applications.filter((application) => application.eventId === selectedEvent.id) : data.applications;
+  const trustOrder = { BENEFIT: 0, NORMAL: 1, PENALTY: 2 };
+  const rows = (selectedEvent ? data.applications.filter((application) => application.eventId === selectedEvent.id) : data.applications)
+    .slice()
+    .sort((left, right) => {
+      const leftTeacher = data.teachers.find((teacher) => teacher.id === left.teacherProfileId);
+      const rightTeacher = data.teachers.find((teacher) => teacher.id === right.teacherProfileId);
+      const trustDifference = trustOrder[leftTeacher?.trustStatus || "NORMAL"] - trustOrder[rightTeacher?.trustStatus || "NORMAL"];
+      return trustDifference || new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
+    });
   return (
     <section className="panel">
       <SectionHead title="신청/선정" text={selectedEvent ? `${selectedEvent.title} 신청 학교를 검토하고 선정 상태를 처리합니다.` : "행사를 선택하면 신청/선정 목록을 확인할 수 있습니다."} />
+      {data.stats.unusedCouponCount === 0 && rows.some((application) => application.status === "SUBMITTED") ? <div className="attention-strip"><strong>지급 가능한 쿠폰이 없습니다.</strong><span>선정 전에 혜택/지원에서 쿠폰 엑셀을 업로드해 주세요.</span></div> : null}
       {rows.length ? (
-        <div className="table-wrap"><table><thead><tr><th>학교</th><th>소속/팀명</th><th>예상 작품</th><th>상태</th><th>처리</th></tr></thead><tbody>{rows.map((application) => <tr key={application.id}><td>{application.schoolName}</td><td>{application.affiliationName}</td><td>{application.expectedSubmissionCount}편</td><td>{applicationStatusLabels[application.status]}</td><td><div className="button-row"><button className="ghost-button" onClick={() => onApplicationStatus(application.id, "SELECTED")} type="button">선정</button><button className="ghost-button" onClick={() => onApplicationStatus(application.id, "WAITLISTED")} type="button">예비</button><button className="ghost-button" onClick={() => onApplicationStatus(application.id, "NOT_SELECTED")} type="button">미선정</button></div></td></tr>)}</tbody></table></div>
+        <div className="table-wrap"><table><thead><tr><th>순서</th><th>학교</th><th>소속/팀명</th><th>참여 기준</th><th>예상 작품</th><th>신청일</th><th>상태</th><th>처리</th></tr></thead><tbody>{rows.map((application, index) => {
+          const teacher = data.teachers.find((item) => item.id === application.teacherProfileId);
+          const trustLabel = teacher?.trustStatus === "BENEFIT" ? "우선" : teacher?.trustStatus === "PENALTY" ? "후순위" : "일반";
+          return <tr key={application.id}><td>{index + 1}</td><td>{application.schoolName}</td><td>{application.affiliationName}</td><td>{trustLabel}</td><td>{application.expectedSubmissionCount}편</td><td>{new Date(application.createdAt).toLocaleDateString("ko-KR")}</td><td>{applicationStatusLabels[application.status]}</td><td><div className="button-row"><button className="ghost-button" onClick={() => onApplicationStatus(application.id, "SELECTED")} type="button">선정</button><button className="ghost-button" onClick={() => onApplicationStatus(application.id, "WAITLISTED")} type="button">예비</button><button className="ghost-button" onClick={() => onApplicationStatus(application.id, "NOT_SELECTED")} type="button">미선정</button></div></td></tr>;
+        })}</tbody></table></div>
       ) : (
         <EmptyState title="접수된 신청이 없습니다." text="선생님 신청이 들어오면 선착순, 패널티, 성실 참여 이력을 기준으로 검토합니다." />
       )}
@@ -633,10 +712,26 @@ function TeachersDbPage({ data, selectedEvent }: { data: DashboardResponse; sele
     <section className="panel">
       <SectionHead title="선생님 DB" text="꿈프 가입 선생님과 학교별 신청, 선정, 출품 현황을 관리합니다." />
       <div className="metric-grid compact">
-        <MetricCard label="등록 선생님" value={`${data.teachers.length}명`} />
+        <MetricCard label="가입 선생님" value={`${data.registeredTeachers.length}명`} />
+        <MetricCard label="프로필 완료" value={`${data.teachers.length}명`} />
         <MetricCard label="참여 학교" value={`${new Set(data.teachers.map((teacher) => teacher.schoolName)).size}교`} />
-        <MetricCard label="선정 이력" value={`${data.applications.filter((application) => application.status === "SELECTED").length}건`} />
       </div>
+      {data.registeredTeachers.some((teacher) => !teacher.profileId) ? (
+        <div className="attention-strip">
+          <strong>프로필 미완성 {data.registeredTeachers.filter((teacher) => !teacher.profileId).length}명</strong>
+          <span>가입은 완료했지만 아직 첫 행사 신청을 하지 않은 선생님입니다.</span>
+        </div>
+      ) : null}
+      {data.registeredTeachers.some((teacher) => !teacher.profileId) ? (
+        <div className="compact-list pending-teachers">
+          {data.registeredTeachers.filter((teacher) => !teacher.profileId).map((teacher) => (
+            <div className="compact-row" key={teacher.id}>
+              <div><strong>{teacher.name}</strong><small>{teacher.email}</small></div>
+              <span>{teacher.status === "ACTIVE" ? "이메일 인증 완료" : "인증 대기"}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
       {rows.length ? (
         <div className="table-wrap">
           <table>
@@ -666,15 +761,18 @@ function TeachersDbPage({ data, selectedEvent }: { data: DashboardResponse; sele
   );
 }
 
-function SubmissionsPage({ data, selectedEvent, onUpload }: { data: DashboardResponse; selectedEvent?: DreamEvent; onUpload: (file?: File) => void }) {
+function SubmissionsPage({ data, selectedEvent, onUpload, onConfirmMatch }: { data: DashboardResponse; selectedEvent?: DreamEvent; onUpload: (file?: File) => void; onConfirmMatch: (externalSubmissionId: string, applicationId: string) => void }) {
   const works = selectedEvent ? data.submissions.filter((work) => work.eventId === selectedEvent.id) : [];
+  const selectedApplications = selectedEvent
+    ? data.applications.filter((application) => application.eventId === selectedEvent.id && application.status === "SELECTED")
+    : [];
   return (
     <section className="panel">
       <SectionHead title="출품 확인" text="관리자가 업로드한 출품 엑셀만 분석합니다. 학교명/소속명 기준으로 자동 매칭하고 유사 항목은 확인 필요로 분류합니다." />
       {selectedEvent ? (
         <>
           <div className="event-row active"><div><strong>{selectedEvent.title}</strong><small>{eventTypeLabels[selectedEvent.eventType]} · 출품 소속명/팀명 기준 매칭</small></div><UploadButton label="출품 엑셀 업로드" accept=".xlsx,.xls,.csv" onFile={onUpload} /></div>
-          <WorksTable works={works} events={data.events} emptyText="아직 업로드된 출품 엑셀이 없습니다." />
+          <SubmissionReviewTable works={works} events={data.events} applications={selectedApplications} onConfirmMatch={onConfirmMatch} />
         </>
       ) : (
         <EmptyState title="먼저 행사를 등록해 주세요." text="행사 운영에서 꿈프 행사를 만든 뒤 출품 엑셀을 업로드할 수 있습니다." />
@@ -689,50 +787,37 @@ function BenefitsPage({ data, onCouponUpload }: { data: DashboardResponse; onCou
       <SectionHead title="혜택/지원" text="한국경제신문 구독권 쿠폰 엑셀을 업로드해 재고를 관리합니다." />
       <UploadButton label="쿠폰 엑셀 업로드" accept=".xlsx,.xls,.csv" onFile={onCouponUpload} />
       <div className="metric-grid compact"><MetricCard label="총 쿠폰" value={`${data.coupons.length}개`} /><MetricCard label="미사용" value={`${data.stats.unusedCouponCount}개`} /><MetricCard label="지급완료" value={`${data.coupons.filter((coupon) => coupon.status === "ASSIGNED").length}개`} /></div>
-      {data.coupons.length ? <div className="table-wrap"><table><thead><tr><th>쿠폰번호</th><th>상태</th><th>업로드일</th></tr></thead><tbody>{data.coupons.map((coupon) => <tr key={coupon.id}><td>{coupon.couponNumber}</td><td>{coupon.status === "UNUSED" ? "미사용" : "지급완료"}</td><td>{new Date(coupon.uploadedAt).toLocaleString("ko-KR")}</td></tr>)}</tbody></table></div> : <EmptyState title="업로드된 쿠폰이 없습니다." text="쿠폰 번호가 들어 있는 엑셀을 업로드하면 자동으로 번호를 인식합니다." />}
+      {data.coupons.length ? <div className="table-wrap"><table><thead><tr><th>쿠폰번호</th><th>상태</th><th>지급 학교</th><th>업로드일</th></tr></thead><tbody>{data.coupons.map((coupon) => {
+        const application = data.applications.find((item) => item.id === coupon.assignedApplicationId);
+        return <tr key={coupon.id}><td>{coupon.couponNumber}</td><td>{coupon.status === "UNUSED" ? "미사용" : "지급완료"}</td><td>{application?.schoolName || "-"}</td><td>{new Date(coupon.uploadedAt).toLocaleString("ko-KR")}</td></tr>;
+      })}</tbody></table></div> : <EmptyState title="업로드된 쿠폰이 없습니다." text="쿠폰 번호가 들어 있는 엑셀을 업로드하면 자동으로 번호를 인식합니다." />}
     </section>
   );
 }
 
 function DocumentsPage({ data, selectedEvent }: { data: DashboardResponse; selectedEvent?: DreamEvent }) {
   const selectedApplications = data.applications.filter((application) => application.status === "SELECTED" && (!selectedEvent || application.eventId === selectedEvent.id));
-  const firstSelectedApplication = selectedApplications[0];
-  const eventItem = data.events.find((event) => event.id === firstSelectedApplication?.eventId);
-  const matchedWorks = firstSelectedApplication ? data.submissions.filter((work) => work.applicationId === firstSelectedApplication.id) : [];
-  async function downloadCertificate() {
-    if (!firstSelectedApplication) return;
-    const response = await fetch("/api/certificates/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        certificateNo: String(Date.now()).slice(-4),
-        schoolName: firstSelectedApplication.schoolName,
-        teacherName: data.teachers.find((teacher) => teacher.id === firstSelectedApplication.teacherProfileId)?.teacherName || "",
-        eventTitle: eventItem?.title || "영상 꿈나무 양성 프로젝트",
-        activityPeriod: eventItem?.contestPeriod || "",
-        works: matchedWorks.map((work) => ({ title: work.title, participantName: work.participantName }))
-      })
-    });
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${firstSelectedApplication.schoolName}-activity-certificate.pdf`;
-    anchor.click();
-    URL.revokeObjectURL(url);
-  }
   return (
     <section className="panel">
       <SectionHead title="활동확인서" text="고정 활동확인서 양식에 학교명, 작품명, 학생명, 활동 기간을 자동으로 넣어 PDF를 발급합니다." />
-      {firstSelectedApplication ? (
-        <div className="compact-list">
-          <div className="compact-row">
-            <div>
-              <strong>{firstSelectedApplication.schoolName}</strong>
-              <small>{eventItem?.title || "선택된 행사"} · 확인 작품 {matchedWorks.length}편</small>
-            </div>
-            <button className="primary-button" onClick={downloadCertificate} type="button">활동확인서 PDF 발급</button>
-          </div>
+      {selectedApplications.length ? (
+        <div className="document-list">
+          {selectedApplications.map((application) => {
+            const eventItem = data.events.find((event) => event.id === application.eventId);
+            const applicationWorks = data.submissions.filter((work) => work.applicationId === application.id);
+            const matchedWorks = applicationWorks.filter((work) => work.matchStatus === "MATCHED");
+            const unresolvedCount = applicationWorks.filter((work) => work.matchStatus !== "MATCHED").length;
+            const canIssue = matchedWorks.length > 0 && unresolvedCount === 0 && ["CERTIFICATE_RUNNING", "SCORE_REPORT_RUNNING", "READY_TO_CLOSE", "CLOSED"].includes(eventItem?.status || "");
+            return (
+              <article className="document-row" key={application.id}>
+                <div>
+                  <strong>{application.schoolName}</strong>
+                  <small>{eventItem?.title || "선택된 행사"} · 확인 {matchedWorks.length}편{unresolvedCount ? ` · 검토 필요 ${unresolvedCount}편` : ""}</small>
+                </div>
+                {canIssue ? <CertificateDownloadButton application={application} eventItem={eventItem} works={matchedWorks} teacherName={data.teachers.find((teacher) => teacher.id === application.teacherProfileId)?.teacherName} /> : <span className="status-pill">발급 조건 확인 필요</span>}
+              </article>
+            );
+          })}
         </div>
       ) : (
         <EmptyState title="발급 가능한 선정 학교가 없습니다." text="신청/선정에서 학교를 선정하고 출품 확인이 완료되면 활동확인서를 발급할 수 있습니다." />
@@ -891,16 +976,108 @@ function WorksTable({ works, events, emptyText }: { works: SubmissionWork[]; eve
   );
 }
 
-function EventSummaryCard({ event, applications, works, selected }: { event: DreamEvent; applications: DreamApplication[]; works: SubmissionWork[]; selected: boolean }) {
+function SubmissionReviewTable({ works, events, applications, onConfirmMatch }: { works: SubmissionWork[]; events: DreamEvent[]; applications: DreamApplication[]; onConfirmMatch: (externalSubmissionId: string, applicationId: string) => void }) {
+  const [targets, setTargets] = useState<Record<string, string>>({});
+  if (!works.length) return <EmptyState title="아직 업로드된 출품 엑셀이 없습니다." text="행사에 맞는 출품 엑셀을 업로드하면 소속명/팀명 기준으로 분석합니다." />;
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead><tr><th>소속/팀명</th><th>작품명</th><th>감독/출품자</th><th>평점</th><th>순위</th><th>매칭 상태</th><th>학교 확인</th></tr></thead>
+        <tbody>
+          {works.map((work) => {
+            const currentApplicationId = work.applicationId || "";
+            const selectedTarget = targets[work.id] ?? currentApplicationId;
+            return (
+              <tr key={work.id}>
+                <td>{work.affiliationName || "-"}</td>
+                <td>{work.submissionUrl ? <a href={work.submissionUrl} rel="noreferrer" target="_blank">{work.title || "작품 링크"}</a> : work.title || "-"}</td>
+                <td>{work.participantName || "-"}</td>
+                <td>{work.preliminaryScore ?? "-"}</td>
+                <td>{work.rank ?? "-"}</td>
+                <td><span className={work.matchStatus === "MATCHED" ? "success-text" : "danger-text"}>{matchStatusLabels[work.matchStatus]}</span><small className="cell-note">{work.matchReason}</small></td>
+                <td>
+                  {work.matchStatus === "MATCHED" ? (
+                    <span>{applications.find((application) => application.id === work.applicationId)?.schoolName || work.schoolName}</span>
+                  ) : (
+                    <div className="match-control">
+                      <select value={selectedTarget} onChange={(event) => setTargets((current) => ({ ...current, [work.id]: event.target.value }))}>
+                        <option value="">학교 선택</option>
+                        {applications.map((application) => <option key={application.id} value={application.id}>{application.schoolName} · {application.affiliationName}</option>)}
+                      </select>
+                      <button className="ghost-button" disabled={!selectedTarget} onClick={() => onConfirmMatch(work.id, selectedTarget)} type="button">매칭 확정</button>
+                    </div>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function CertificateDownloadButton({ application, eventItem, works, teacherName = "" }: { application: DreamApplication; eventItem?: DreamEvent; works: SubmissionWork[]; teacherName?: string }) {
+  const [isDownloading, setIsDownloading] = useState(false);
+  async function download() {
+    setIsDownloading(true);
+    try {
+      const response = await fetch("/api/certificates/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          applicationId: application.id,
+          certificateNo: String(Date.now()).slice(-4),
+          schoolName: application.schoolName,
+          teacherName,
+          eventTitle: eventItem?.title || "영상 꿈나무 양성 프로젝트",
+          activityPeriod: eventItem?.contestPeriod || "",
+          works: works.map((work) => ({ title: work.title, participantName: work.participantName }))
+        })
+      });
+      if (!response.ok) return;
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${application.schoolName}-활동확인서.pdf`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setIsDownloading(false);
+    }
+  }
+  return <button className="primary-button" disabled={isDownloading} onClick={download} type="button">{isDownloading ? "생성 중" : "활동확인서 PDF"}</button>;
+}
+
+function EventWorkflowBar({ eventItem, onAdvance }: { eventItem: DreamEvent; onAdvance: (eventId: string, status: DreamEvent["status"]) => void }) {
+  const currentIndex = eventWorkflow.indexOf(eventItem.status);
+  const nextStatus = eventWorkflow[currentIndex + 1];
+  return (
+    <section className="workflow-panel">
+      <div>
+        <span>현재 단계</span>
+        <strong>{statusLabels[eventItem.status]}</strong>
+        <small>{eventItem.title}</small>
+      </div>
+      <div className="workflow-track" aria-label="꿈프 운영 단계">
+        {eventWorkflow.map((status, index) => <span className={index <= currentIndex ? "complete" : ""} key={status} title={statusLabels[status]} />)}
+      </div>
+      {nextStatus ? <button className="primary-button" onClick={() => onAdvance(eventItem.id, nextStatus)} type="button">{nextActionLabels[eventItem.status] || `다음: ${statusLabels[nextStatus]}`}</button> : <span className="status-pill success">운영 종료</span>}
+    </section>
+  );
+}
+
+function EventSummaryCard({ event, applications, works, selected, onSelect }: { event: DreamEvent; applications: DreamApplication[]; works: SubmissionWork[]; selected: boolean; onSelect: () => void }) {
   const eventApplications = applications.filter((item) => item.eventId === event.id);
   const selectedCount = eventApplications.filter((item) => item.status === "SELECTED").length;
   const eventWorks = works.filter((item) => item.eventId === event.id);
   const reviewCount = eventWorks.filter((item) => item.matchStatus !== "MATCHED").length;
   return (
-    <article className={`event-summary-card ${selected ? "active" : ""}`}>
+    <button className={`event-summary-card ${selected ? "active" : ""}`} onClick={onSelect} type="button">
       <div><span className="status-pill success">{statusLabels[event.status]}</span><h3>{event.title}</h3><p>{eventTypeLabels[event.eventType]} · {event.contestPeriod || "기간 미입력"}</p></div>
       <div className="mini-stats"><span>신청 {eventApplications.length}건</span><span>선정 {selectedCount}교</span><span>출품 {eventWorks.length}편</span><span className={reviewCount ? "danger-text" : ""}>확인 {reviewCount}건</span></div>
-    </article>
+    </button>
   );
 }
 

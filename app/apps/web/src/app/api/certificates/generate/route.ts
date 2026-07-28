@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import PDFDocument from "pdfkit";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { requireUser } from "@/lib/auth";
+import { isDatabaseConfigured, prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -12,24 +14,70 @@ type CertificateWork = {
 };
 
 export async function POST(request: Request) {
-  const body = await request.json();
-  const works = normalizeWorks(body.works);
-  const pdf = await buildCertificatePdf({
-    certificateNo: String(body.certificateNo || "0000"),
-    schoolName: String(body.schoolName || t("학교명")),
-    teacherName: String(body.teacherName || ""),
-    eventTitle: String(body.eventTitle || t("영상 꿈나무 양성 프로젝트")),
-    activityPeriod: String(body.activityPeriod || ""),
-    issuedAt: body.issuedAt ? new Date(String(body.issuedAt)) : new Date(),
-    works
-  });
+  try {
+    const user = await requireUser();
+    const body = await request.json();
+    let input = {
+      certificateNo: String(body.certificateNo || "0000"),
+      schoolName: String(body.schoolName || t("학교명")),
+      teacherName: String(body.teacherName || ""),
+      eventTitle: String(body.eventTitle || t("영상 꿈나무 양성 프로젝트")),
+      activityPeriod: String(body.activityPeriod || ""),
+      issuedAt: body.issuedAt ? new Date(String(body.issuedAt)) : new Date(),
+      works: normalizeWorks(body.works)
+    };
 
-  return new NextResponse(new Uint8Array(pdf), {
-    headers: {
-      "Content-Type": "application/pdf",
-      "Content-Disposition": "attachment; filename=activity-certificate.pdf"
+    if (isDatabaseConfigured() && body.applicationId) {
+      const application = await prisma.dreamApplication.findUnique({
+        where: { id: String(body.applicationId) },
+        include: {
+          teacherProfile: { include: { user: true } },
+          dreamEvent: { include: { event: true } },
+          participation: {
+            include: {
+              matches: { include: { externalSubmission: true } }
+            }
+          }
+        }
+      });
+      if (!application) throw new Error("신청 정보를 찾을 수 없습니다.");
+      if (user.userType !== "ADMIN" && application.teacherProfile.user.email.toLowerCase() !== user.email.toLowerCase()) {
+        throw new Error("본인의 활동확인서만 다운로드할 수 있습니다.");
+      }
+      if (user.userType !== "ADMIN" && !["CERTIFICATE_RUNNING", "SCORE_REPORT_RUNNING", "READY_TO_CLOSE", "CLOSED"].includes(application.dreamEvent.operationStatus)) {
+        throw new Error("관리자 최종 확인 후 다운로드할 수 있습니다.");
+      }
+      const matchedWorks = (application.participation?.matches ?? [])
+        .filter((match) => match.matchType === "EXACT" || match.matchType === "MANUAL")
+        .map((match) => ({
+          title: match.externalSubmission.title,
+          participantName: match.externalSubmission.participantName || ""
+        }));
+      if (!matchedWorks.length) throw new Error("최종 확인된 출품작이 없습니다.");
+      input = {
+        certificateNo: String(body.certificateNo || application.id.slice(-4).toUpperCase()),
+        schoolName: application.schoolNameSnapshot,
+        teacherName: application.teacherProfile.teacherName,
+        eventTitle: application.dreamEvent.event.title,
+        activityPeriod: formatPeriod(application.dreamEvent.event.contestStartAt, application.dreamEvent.event.contestEndAt),
+        issuedAt: new Date(),
+        works: matchedWorks
+      };
     }
-  });
+
+    const pdf = await buildCertificatePdf(input);
+    return new NextResponse(new Uint8Array(pdf), {
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": "attachment; filename=activity-certificate.pdf"
+      }
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { message: error instanceof Error ? error.message : "활동확인서를 생성하지 못했습니다." },
+      { status: 400 }
+    );
+  }
 }
 
 function normalizeWorks(value: unknown): CertificateWork[] {
@@ -143,6 +191,13 @@ function findKoreanFontPath() {
 
 function formatKoreanDate(date: Date) {
   return `${date.getFullYear()}. ${date.getMonth() + 1}. ${date.getDate()}.`;
+}
+
+function formatPeriod(start?: Date | null, end?: Date | null) {
+  return [start, end]
+    .filter(Boolean)
+    .map((date) => `${date!.getFullYear()}. ${date!.getMonth() + 1}. ${date!.getDate()}.`)
+    .join(" ~ ");
 }
 
 function t(value: string) {

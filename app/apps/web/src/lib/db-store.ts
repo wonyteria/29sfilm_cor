@@ -25,7 +25,14 @@ type ApplicationForMatch = {
 
 export async function readDbState(): Promise<AppState> {
   const events = await prisma.dreamEvent.findMany({ include: { event: true }, orderBy: { createdAt: "desc" } });
+  const registeredTeachers = await prisma.user.findMany({
+    where: { userType: "TEACHER" },
+    include: { teacherProfile: true },
+    orderBy: { createdAt: "desc" }
+  });
   const teachers = await prisma.teacherProfile.findMany({ include: { user: true }, orderBy: { createdAt: "desc" } });
+  const participationSummaries = await prisma.schoolParticipationSummary.findMany();
+  const summaryBySchool = new Map(participationSummaries.map((summary) => [summary.schoolName, summary]));
   const applications = await prisma.dreamApplication.findMany({ orderBy: { appliedAt: "desc" } });
   const submissions = await prisma.externalSubmission.findMany({
     include: {
@@ -34,7 +41,10 @@ export async function readDbState(): Promise<AppState> {
     },
     orderBy: { syncedAt: "desc" }
   });
-  const coupons = await prisma.coupon.findMany({ orderBy: { createdAt: "desc" } });
+  const coupons = await prisma.coupon.findMany({
+    include: { assignments: { include: { participation: true } } },
+    orderBy: { createdAt: "desc" }
+  });
   const certificateTemplates = await prisma.certificateTemplate.findMany({ orderBy: { createdAt: "desc" } });
   const notices = await prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 100 });
 
@@ -54,6 +64,14 @@ export async function readDbState(): Promise<AppState> {
       targetSubmissionCount: item.targetSubmissionCount ?? 0,
       createdAt: item.createdAt.toISOString()
     })),
+    registeredTeachers: registeredTeachers.map((item) => ({
+      id: item.id,
+      name: item.name,
+      email: item.email,
+      status: item.status,
+      createdAt: item.createdAt.toISOString(),
+      profileId: item.teacherProfile?.id
+    })),
     teachers: teachers.map((item) => ({
       id: item.id,
       schoolName: item.schoolName,
@@ -61,7 +79,7 @@ export async function readDbState(): Promise<AppState> {
       email: item.contactEmail || item.user.email,
       phone: item.contactPhone || item.user.phone || "",
       affiliationName: item.affiliationName,
-      trustStatus: "NORMAL"
+      trustStatus: normalizeTrustStatus(summaryBySchool.get(item.schoolName)?.trustStatus)
     } satisfies TeacherProfile)),
     applications: applications.map((item) => ({
       id: item.id,
@@ -79,7 +97,7 @@ export async function readDbState(): Promise<AppState> {
     submissions: submissions.map((item) => {
       const match = item.matches[0];
       const application = match?.participation.application;
-      const matchStatus = match ? (match.matchType === "EXACT" ? "MATCHED" : "NEEDS_REVIEW") : "MISSING";
+      const matchStatus = match ? (match.matchType === "EXACT" || match.matchType === "MANUAL" ? "MATCHED" : "NEEDS_REVIEW") : "MISSING";
       const raw = (item.rawData ?? {}) as Record<string, unknown>;
       return {
         id: item.id,
@@ -102,6 +120,7 @@ export async function readDbState(): Promise<AppState> {
       id: item.id,
       couponNumber: item.couponNumber,
       status: item.status === "ASSIGNED" ? "ASSIGNED" : "UNUSED",
+      assignedApplicationId: item.assignments[0]?.participation.applicationId,
       uploadedAt: item.createdAt.toISOString()
     } satisfies Coupon)),
     certificateTemplates: certificateTemplates.map((item) => ({
@@ -168,12 +187,16 @@ export function buildDbDashboard(state: AppState): DashboardResponse {
 }
 
 export async function addDbEvent(input: Omit<DreamEvent, "id" | "createdAt">) {
+  const [contestStartAt, contestEndAt] = parsePeriod(input.contestPeriod);
   await prisma.$transaction(async (tx) => {
     const event = await tx.event.create({
       data: {
         title: input.title,
         eventType: input.eventType,
         posterFileId: input.posterUrl || null,
+        contestStartAt,
+        contestEndAt,
+        submissionDeadlineAt: contestEndAt,
         topic: input.topic || null,
         homepageUrl: input.homepageUrl || null,
         submissionUrl: input.submissionUrl || null,
@@ -201,6 +224,7 @@ export async function addDbApplication(input: {
   phone?: string;
   affiliationName: string;
   expectedSubmissionCount: number;
+  plannedSubmissionDate?: string;
   usagePlan?: string;
   memo?: string;
 }) {
@@ -216,14 +240,19 @@ export async function addDbApplication(input: {
         passwordHash: "SET_PASSWORD_ON_FIRST_LOGIN"
       }
     });
+    const existingProfile = await tx.teacherProfile.findUnique({ where: { userId: user.id } });
+    if (
+      existingProfile &&
+      (existingProfile.schoolName !== input.schoolName || existingProfile.affiliationName !== input.affiliationName)
+    ) {
+      throw new Error("기존 프로필의 학교명 또는 출품 소속명과 다릅니다. 관리자에게 변경 확인을 요청해 주세요.");
+    }
     const profile = await tx.teacherProfile.upsert({
       where: { userId: user.id },
       update: {
-        schoolName: input.schoolName,
         teacherName: input.teacherName,
         contactPhone: input.phone || null,
-        contactEmail: input.email,
-        affiliationName: input.affiliationName
+        contactEmail: input.email
       },
       create: {
         userId: user.id,
@@ -234,6 +263,10 @@ export async function addDbApplication(input: {
         affiliationName: input.affiliationName
       }
     });
+    const existingApplication = await tx.dreamApplication.findFirst({
+      where: { dreamEventId: input.eventId, teacherProfileId: profile.id }
+    });
+    if (existingApplication) throw new Error("이미 신청한 행사입니다. 신청 현황에서 상태를 확인해 주세요.");
     const application = await tx.dreamApplication.create({
       data: {
         dreamEventId: input.eventId,
@@ -241,6 +274,7 @@ export async function addDbApplication(input: {
         schoolNameSnapshot: input.schoolName,
         affiliationNameSnapshot: input.affiliationName,
         expectedSubmissionCount: Math.max(1, input.expectedSubmissionCount || 1),
+        plannedSubmissionDate: input.plannedSubmissionDate ? new Date(`${input.plannedSubmissionDate}T00:00:00+09:00`) : null,
         usagePlan: input.usagePlan || null,
         memo: input.memo || null,
         status: "SUBMITTED"
@@ -276,18 +310,105 @@ export async function updateDbApplicationStatus(applicationId: string, status: "
           create: { participationId: participation.id, slotNo }
         });
       }
+      const existingCoupon = await tx.couponAssignment.findFirst({ where: { participationId: participation.id } });
+      if (!existingCoupon) {
+        const coupon = await tx.coupon.findFirst({ where: { status: "UNUSED" }, orderBy: { createdAt: "asc" } });
+        if (coupon) {
+          await tx.coupon.update({ where: { id: coupon.id }, data: { status: "ASSIGNED" } });
+          await tx.couponAssignment.create({
+            data: { couponId: coupon.id, participationId: participation.id, status: "ASSIGNED" }
+          });
+        }
+      }
     }
     await audit(tx, "신청 상태 변경", "DreamApplication", applicationId, { status });
   });
   return buildDbDashboard(await readDbState());
 }
 
+export async function updateDbEventStatus(eventId: string, status: EventStatus) {
+  const sequence: EventStatus[] = [
+    "PREPARING",
+    "RECRUITING",
+    "SELECTING",
+    "SUBMISSION_RUNNING",
+    "FINAL_REVIEW",
+    "CERTIFICATE_RUNNING",
+    "SCORE_REPORT_RUNNING",
+    "READY_TO_CLOSE",
+    "CLOSED"
+  ];
+  await prisma.$transaction(async (tx) => {
+    const dreamEvent = await tx.dreamEvent.findUnique({ where: { id: eventId }, include: { event: true } });
+    if (!dreamEvent) throw new Error("행사를 찾을 수 없습니다.");
+    const current = dreamEvent.operationStatus as EventStatus;
+    if (sequence[sequence.indexOf(current) + 1] !== status) {
+      throw new Error("행사 단계는 운영 순서에 따라 한 단계씩 변경할 수 있습니다.");
+    }
+    if (status === "SUBMISSION_RUNNING") {
+      const selectedCount = await tx.dreamApplication.count({ where: { dreamEventId: eventId, status: "SELECTED" } });
+      if (!selectedCount) throw new Error("선정된 학교가 있어야 출품 확인 단계를 시작할 수 있습니다.");
+    }
+    if (status === "FINAL_REVIEW") {
+      const submissionCount = await tx.externalSubmission.count({ where: { connection: { dreamEventId: eventId } } });
+      if (!submissionCount) throw new Error("출품 엑셀을 먼저 업로드해 주세요.");
+    }
+    if (status === "CERTIFICATE_RUNNING") {
+      const unresolvedCount = await tx.externalSubmission.count({
+        where: {
+          connection: { dreamEventId: eventId },
+          OR: [{ matches: { none: {} } }, { matches: { some: { matchType: "SIMILAR" } } }]
+        }
+      });
+      if (unresolvedCount) throw new Error(`출품 매칭 확인이 필요한 작품 ${unresolvedCount}편을 먼저 처리해 주세요.`);
+    }
+    await tx.dreamEvent.update({
+      where: { id: eventId },
+      data: {
+        operationStatus: toDreamOperationStatus(status),
+        closedAt: status === "CLOSED" ? new Date() : undefined
+      }
+    });
+    await tx.event.update({
+      where: { id: dreamEvent.eventId },
+      data: { status: status === "CLOSED" ? "CLOSED" : status === "PREPARING" ? "UPCOMING" : "RECRUITING" }
+    });
+    await audit(tx, "행사 단계 변경", "DreamEvent", eventId, { before: current, after: status });
+  });
+  return buildDbDashboard(await readDbState());
+}
+
+export async function confirmDbSubmissionMatch(externalSubmissionId: string, applicationId: string) {
+  await prisma.$transaction(async (tx) => {
+    const [external, application] = await Promise.all([
+      tx.externalSubmission.findUnique({ where: { id: externalSubmissionId }, include: { connection: true } }),
+      tx.dreamApplication.findUnique({ where: { id: applicationId }, include: { participation: true } })
+    ]);
+    if (!external || !application?.participation || external.connection.dreamEventId !== application.dreamEventId) {
+      throw new Error("같은 행사의 선정 학교만 매칭할 수 있습니다.");
+    }
+    await tx.submissionMatch.deleteMany({ where: { externalSubmissionId } });
+    await tx.submissionMatch.create({
+      data: {
+        participationId: application.participation.id,
+        externalSubmissionId,
+        matchType: "MANUAL",
+        matchStatus: "ACTIVE"
+      }
+    });
+    await audit(tx, "출품 수동 매칭", "ExternalSubmission", externalSubmissionId, { applicationId });
+  });
+  return buildDbDashboard(await readDbState());
+}
+
 export async function addDbCoupons(couponNumbers: string[], upload?: { fileName?: string; dataUrl?: string }) {
   const normalized = [...new Set(couponNumbers.map((value) => value.trim()).filter(isCouponLike))];
-  await prisma.coupon.createMany({
+  if (!normalized.length) throw new Error("쿠폰 번호를 찾지 못했습니다. 쿠폰번호 열과 값을 확인해 주세요.");
+  const result = await prisma.coupon.createMany({
     data: normalized.map((couponNumber) => ({ couponNumber })),
     skipDuplicates: true
   });
+  if (!result.count) throw new Error("새로 등록할 쿠폰 번호가 없습니다. 중복 번호를 확인해 주세요.");
   await prisma.auditLog.create({ data: { action: "쿠폰 업로드", entityType: "Coupon", entityId: `${normalized.length}` } });
   if (upload?.fileName) await storeFileAsset({ originalName: upload.fileName, dataUrl: upload.dataUrl, folder: "coupons" });
   return buildDbDashboard(await readDbState());
@@ -304,14 +425,35 @@ export async function addDbCertificateTemplate(fileName: string, dataUrl?: strin
 
 export async function analyzeDbSubmissions(eventId: string, rows: Row[], upload?: { fileName?: string; dataUrl?: string }) {
   const applications = await prisma.dreamApplication.findMany({
-    where: { dreamEventId: eventId },
+    where: { dreamEventId: eventId, status: "SELECTED" },
     include: { participation: true, dreamEvent: { include: { event: true } } }
   });
+  if (!applications.length) throw new Error("선정된 학교가 없습니다. 신청/선정을 먼저 완료해 주세요.");
   const works = rankWorks(
     rows.map((row) => normalizeSubmissionRow(eventId, row, applications)).filter((work) => work.affiliationName || work.title)
   );
+  if (!works.length || !works.some((work) => work.affiliationName)) {
+    throw new Error("엑셀에서 소속/소속명/팀명 열을 찾지 못했습니다. 파일의 첫 행 제목을 확인해 주세요.");
+  }
 
   await prisma.$transaction(async (tx) => {
+    const previousConnections = await tx.externalEventConnection.findMany({
+      where: { dreamEventId: eventId },
+      select: { id: true }
+    });
+    const previousConnectionIds = previousConnections.map((connection) => connection.id);
+    if (previousConnectionIds.length) {
+      const previousSubmissions = await tx.externalSubmission.findMany({
+        where: { connectionId: { in: previousConnectionIds } },
+        select: { id: true }
+      });
+      const previousSubmissionIds = previousSubmissions.map((submission) => submission.id);
+      if (previousSubmissionIds.length) {
+        await tx.submissionMatch.deleteMany({ where: { externalSubmissionId: { in: previousSubmissionIds } } });
+        await tx.externalSubmission.deleteMany({ where: { id: { in: previousSubmissionIds } } });
+      }
+      await tx.externalEventConnection.deleteMany({ where: { id: { in: previousConnectionIds } } });
+    }
     const connection = await tx.externalEventConnection.create({
       data: {
         dreamEventId: eventId,
@@ -360,10 +502,16 @@ function normalizeSubmissionRow(eventId: string, row: Row, applications: Applica
   const submissionUrl = text(pick(row, ["출품 URL", "출품URL", "보기 URL", "영상 URL", "URL", "url", "링크"]));
   const score = number(pick(row, ["예심평점", "평점", "일반평점", "score"]));
   const finalResult = text(pick(row, ["수상결과", "본심", "finalResult"]));
-  const exact = findBestApplicationMatch(applications, (application) => application.affiliationNameSnapshot === affiliationName);
+  const exact = findBestApplicationMatch(
+    applications,
+    (application) => application.affiliationNameSnapshot === affiliationName || application.schoolNameSnapshot === affiliationName
+  );
   const similar = exact
     ? undefined
-    : findBestApplicationMatch(applications, (application) => isSimilar(application.affiliationNameSnapshot, affiliationName));
+    : findBestApplicationMatch(
+        applications,
+        (application) => isSimilar(application.affiliationNameSnapshot, affiliationName) || isSimilar(application.schoolNameSnapshot, affiliationName)
+      );
   const matchStatus = exact ? "MATCHED" : similar ? "NEEDS_REVIEW" : "MISSING";
   return {
     id: `work_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -420,20 +568,35 @@ function formatPeriod(start?: Date | null, end?: Date | null) {
   return [start?.toISOString().slice(0, 10), end?.toISOString().slice(0, 10)].filter(Boolean).join(" - ");
 }
 
+function parsePeriod(value: string) {
+  const matches = value.match(/\d{4}[./-]\d{1,2}[./-]\d{1,2}/g) ?? [];
+  const parse = (text?: string) => {
+    if (!text) return null;
+    const normalized = text.replace(/[.]/g, "-");
+    const date = new Date(`${normalized}T00:00:00+09:00`);
+    return Number.isNaN(date.getTime()) ? null : date;
+  };
+  return [parse(matches[0]), parse(matches[1])] as const;
+}
+
 function extractPrize(notice?: string | null) {
   const match = notice?.match(/^총상금\s*(.+)$/m);
   return match?.[1] ?? "";
 }
 
 function toDreamOperationStatus(status: EventStatus) {
-  if (status === "CERTIFICATE_READY") return "CERTIFICATE_RUNNING";
-  if (status === "SCORE_READY") return "SCORE_REPORT_RUNNING";
   return status;
 }
 
 function normalizeApplicationStatus(status: string): DreamApplication["status"] {
   if (status === "SELECTED" || status === "WAITLISTED" || status === "NOT_SELECTED") return status;
   return "SUBMITTED";
+}
+
+function normalizeTrustStatus(status?: string): TeacherProfile["trustStatus"] {
+  if (status === "BENEFIT" || status === "EXCELLENT") return "BENEFIT";
+  if (status === "PENALTY" || status === "NON_PERFORMANCE") return "PENALTY";
+  return "NORMAL";
 }
 
 function pick(row: Row, keys: string[]) {

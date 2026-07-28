@@ -6,16 +6,17 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
-    await requireUser();
+    const user = await requireUser();
     const body = await request.json();
     const dashboard = await addApplication({
       eventId: String(body.eventId || ""),
       schoolName: String(body.schoolName || "").trim(),
-      teacherName: String(body.teacherName || "").trim(),
-      email: String(body.email || "").trim(),
+      teacherName: String(body.teacherName || user.name).trim(),
+      email: user.email,
       phone: String(body.phone || "").trim(),
       affiliationName: String(body.affiliationName || "").trim(),
       expectedSubmissionCount: Number(body.expectedSubmissionCount || 1),
+      plannedSubmissionDate: String(body.plannedSubmissionDate || ""),
       usagePlan: String(body.usagePlan || "").trim(),
       memo: String(body.memo || "").trim()
     });
