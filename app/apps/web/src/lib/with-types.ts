@@ -123,15 +123,15 @@ export const eventTypeLabels: Record<EventType, string> = {
 };
 
 export const statusLabels: Record<EventStatus, string> = {
-  PREPARING: "등록",
+  PREPARING: "준비",
   RECRUITING: "모집중",
   SELECTING: "선정중",
   SUBMISSION_RUNNING: "출품 확인",
   FINAL_REVIEW: "최종 확인",
   CERTIFICATE_RUNNING: "확인서 발급",
-  CERTIFICATE_READY: "확인서 발급",
-  SCORE_REPORT_RUNNING: "심사표 반영",
-  SCORE_READY: "심사표 공개",
+  CERTIFICATE_READY: "확인서 완료",
+  SCORE_REPORT_RUNNING: "심사 반영",
+  SCORE_READY: "심사 공개",
   READY_TO_CLOSE: "종료 준비",
   CLOSED: "종료"
 };
