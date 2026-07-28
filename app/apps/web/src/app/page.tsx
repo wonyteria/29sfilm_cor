@@ -8,7 +8,7 @@ import { applicationStatusLabels, eventTypeLabels, matchStatusLabels, statusLabe
 
 type ViewMode = "teacher" | "admin";
 type TeacherPage = "home" | "available" | "works" | "benefits" | "docs" | "profile";
-type AdminPage = "dashboard" | "events" | "submissions" | "benefits" | "documents" | "mails" | "history";
+type AdminPage = "dashboard" | "events" | "applications" | "submissions" | "benefits" | "documents" | "mails" | "history";
 type SessionUser = { id: string; userType: "ADMIN" | "TEACHER"; name: string; email: string; emailVerified?: boolean };
 
 const teacherPages: Array<{ key: TeacherPage; label: string }> = [
@@ -21,11 +21,12 @@ const teacherPages: Array<{ key: TeacherPage; label: string }> = [
 ];
 
 const adminPages: Array<{ key: AdminPage; label: string }> = [
-  { key: "dashboard", label: "관리자 대시보드" },
+  { key: "dashboard", label: "대시보드" },
   { key: "events", label: "행사 운영" },
+  { key: "applications", label: "신청/선정" },
   { key: "submissions", label: "출품 확인" },
   { key: "benefits", label: "혜택/지원" },
-  { key: "documents", label: "활동확인서" },
+  { key: "documents", label: "활동확인서/심사표" },
   { key: "mails", label: "메일/공지" },
   { key: "history", label: "히스토리" }
 ];
@@ -385,7 +386,10 @@ export default function HomePage() {
           <AdminDashboard data={data} selectedEvent={selectedEvent} setPage={setAdminPage} />
         ) : null}
         {!isLoading && mode === "admin" && adminPage === "events" ? (
-          <EventsPage data={data} selectedEvent={selectedEvent} onCreateEvent={handleCreateEvent} onApplicationStatus={handleApplicationStatus} />
+          <EventsPage data={data} selectedEvent={selectedEvent} onCreateEvent={handleCreateEvent} />
+        ) : null}
+        {!isLoading && mode === "admin" && adminPage === "applications" ? (
+          <ApplicationsPage data={data} selectedEvent={selectedEvent} onApplicationStatus={handleApplicationStatus} />
         ) : null}
         {!isLoading && mode === "admin" && adminPage === "submissions" ? (
           <SubmissionsPage data={data} selectedEvent={selectedEvent} onUpload={handleSubmissionUpload} />
@@ -637,9 +641,9 @@ function AdminDashboard({
   return (
     <>
       <section className="metric-grid">
-        <MetricCard label="운영 프로젝트" value={`${data.stats.activeEventCount}개`} />
-        <MetricCard label="선정 학교" value={`${data.stats.selectedSchoolCount}개`} />
-        <MetricCard label="출품 확인" value={`${data.stats.confirmedSubmissionCount}편`} />
+        <MetricCard label="진행 꿈프" value={`${data.stats.activeEventCount}개`} />
+        <MetricCard label="선정 학교" value={`${data.stats.selectedSchoolCount}곳`} />
+        <MetricCard label="출품 확인" value={`${data.stats.confirmedSubmissionCount}/${data.stats.expectedSubmissionCount}편`} />
         <MetricCard label="확인 필요" value={`${data.stats.reviewRequiredCount}건`} danger />
       </section>
 
@@ -664,7 +668,7 @@ function AdminDashboard({
           <button className="primary-button" onClick={() => setPage("events")} type="button">
             <Plus size={16} /> 새 행사 등록
           </button>
-          <button className="ghost-button" onClick={() => setPage("submissions")} type="button">출품 엑셀 분석</button>
+          <button className="ghost-button" onClick={() => setPage("submissions")} type="button">출품 확인</button>
         </div>
       </section>
 
@@ -693,15 +697,12 @@ function AdminDashboard({
 function EventsPage({
   data,
   selectedEvent,
-  onCreateEvent,
-  onApplicationStatus
+  onCreateEvent
 }: {
   data: DashboardResponse;
   selectedEvent?: DreamEvent;
   onCreateEvent: (event: FormEvent<HTMLFormElement>) => void;
-  onApplicationStatus: (applicationId: string, status: DreamApplication["status"]) => void;
 }) {
-  const selectedApplications = selectedEvent ? data.applications.filter((application) => application.eventId === selectedEvent.id) : data.applications;
   return (
     <section className="panel">
       <SectionHead title="행사 운영" text="선생님 화면에 노출될 모집중 행사 정보를 등록합니다." />
@@ -734,44 +735,57 @@ function EventsPage({
           <EmptyState title="아직 등록된 행사가 없습니다." text="첫 실제 꿈프 행사를 등록해 주세요." />
         )}
       </div>
+    </section>
+  );
+}
 
-      <div className="sub-panel">
-        <h3>신청/선정 관리</h3>
-        {selectedApplications.length ? (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>학교</th>
-                  <th>소속/팀명</th>
-                  <th>예상 작품</th>
-                  <th>상태</th>
-                  <th>처리</th>
+function ApplicationsPage({
+  data,
+  selectedEvent,
+  onApplicationStatus
+}: {
+  data: DashboardResponse;
+  selectedEvent?: DreamEvent;
+  onApplicationStatus: (applicationId: string, status: DreamApplication["status"]) => void;
+}) {
+  const rows = selectedEvent ? data.applications.filter((application) => application.eventId === selectedEvent.id) : data.applications;
+  return (
+    <section className="panel">
+      <SectionHead title="신청/선정" text={selectedEvent ? `${selectedEvent.title} 신청 학교를 검토하고 선정 상태를 처리합니다.` : "행사를 선택하면 신청/선정 목록을 확인할 수 있습니다."} />
+      {rows.length ? (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>학교</th>
+                <th>소속/팀명</th>
+                <th>예상 작품</th>
+                <th>상태</th>
+                <th>처리</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((application) => (
+                <tr key={application.id}>
+                  <td>{application.schoolName}</td>
+                  <td>{application.affiliationName}</td>
+                  <td>{application.expectedSubmissionCount}편</td>
+                  <td>{applicationStatusLabels[application.status]}</td>
+                  <td>
+                    <div className="button-row">
+                      <button className="ghost-button" onClick={() => onApplicationStatus(application.id, "SELECTED")} type="button">선정</button>
+                      <button className="ghost-button" onClick={() => onApplicationStatus(application.id, "WAITLISTED")} type="button">예비</button>
+                      <button className="ghost-button" onClick={() => onApplicationStatus(application.id, "NOT_SELECTED")} type="button">미선정</button>
+                    </div>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {selectedApplications.map((application) => (
-                  <tr key={application.id}>
-                    <td>{application.schoolName}</td>
-                    <td>{application.affiliationName}</td>
-                    <td>{application.expectedSubmissionCount}편</td>
-                    <td>{applicationStatusLabels[application.status]}</td>
-                    <td>
-                      <div className="button-row">
-                        <button className="ghost-button" onClick={() => onApplicationStatus(application.id, "SELECTED")} type="button">선정</button>
-                        <button className="ghost-button" onClick={() => onApplicationStatus(application.id, "WAITLISTED")} type="button">예비</button>
-                        <button className="ghost-button" onClick={() => onApplicationStatus(application.id, "NOT_SELECTED")} type="button">미선정</button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <EmptyState title="접수된 신청이 없습니다." text="선생님 화면에서 신청하면 이곳에서 선정 처리할 수 있습니다." />
-        )}
-      </div>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <EmptyState title="접수된 신청이 없습니다." text="선생님 신청이 들어오면 선착순, 패널티, 성실 참여 이력을 기준으로 이곳에서 검토합니다." />
+      )}
     </section>
   );
 }
