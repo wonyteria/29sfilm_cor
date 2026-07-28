@@ -161,6 +161,8 @@ export default function HomePage() {
   async function handleCreateEvent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
+    const posterFile = formData.get("posterFile");
+    const posterUrl = posterFile instanceof File && posterFile.size ? await fileToDataUrl(posterFile) : "";
     const nextData = await postJson(
       "/api/events",
       {
@@ -169,8 +171,8 @@ export default function HomePage() {
         contestPeriod: formData.get("contestPeriod"),
         topic: formData.get("topic"),
         prize: formData.get("prize"),
-        posterUrl: formData.get("posterUrl"),
-        homepageUrl: formData.get("homepageUrl"),
+        posterUrl,
+        homepageUrl: formData.get("submissionUrl"),
         submissionUrl: formData.get("submissionUrl"),
         notice: formData.get("notice"),
         targetSubmissionCount: formData.get("targetSubmissionCount"),
@@ -452,7 +454,7 @@ function TeacherAvailableEvents({ events, onApply, currentUser }: { events: Drea
                 </dl>
                 <p className="event-notice">{event.notice || "등록된 안내사항이 없습니다."}</p>
                 <div className="button-row">
-                  {event.homepageUrl ? <a className="ghost-button" href={event.homepageUrl} rel="noreferrer" target="_blank">홈페이지</a> : null}
+                  {event.submissionUrl ? <a className="ghost-button" href={event.submissionUrl} rel="noreferrer" target="_blank">????</a> : null}
                   <button className="primary-button" onClick={() => setOpenEventId(openEventId === event.id ? "" : event.id)} type="button">신청하기</button>
                 </div>
                 {openEventId === event.id ? (
@@ -556,26 +558,49 @@ function AdminDashboard({ data, selectedEvent, setPage }: { data: DashboardRespo
   );
 }
 
-function EventsPage({ data, selectedEvent, onCreateEvent }: { data: DashboardResponse; selectedEvent?: DreamEvent; onCreateEvent: (event: FormEvent<HTMLFormElement>) => void }) {
+function EventsPage({ data, selectedEvent, onCreateEvent }: { data: DashboardResponse; selectedEvent?: DreamEvent; onCreateEvent: (event: FormEvent<HTMLFormElement>) => Promise<void> | void }) {
+  const [posterPreview, setPosterPreview] = useState("");
+
+  function handlePosterChange(file?: File) {
+    if (!file) {
+      setPosterPreview("");
+      return;
+    }
+    void fileToDataUrl(file).then(setPosterPreview);
+  }
+
   return (
     <section className="panel">
-      <SectionHead title="행사 운영" text="선생님 화면에 노출될 모집중 행사 정보를 등록합니다." />
-      <form className="form-grid" onSubmit={onCreateEvent}>
-        <label>행사명<input name="title" required placeholder="예: 제13회 박카스 29초영화제" /></label>
-        <label>행사 유형<select name="eventType" defaultValue={"TWENTY_NINE_SECONDS" satisfies EventType}><option value="TWENTY_NINE_SECONDS">29초영화제</option><option value="SHORTFORM_KING">29역숏폼왕</option></select></label>
-        <label>공모기간<input name="contestPeriod" placeholder="2026.04.08 - 2026.05.21" /></label>
-        <label>총상금/혜택<input name="prize" placeholder="총상금 또는 혜택" /></label>
-        <label>목표 작품 수<input name="targetSubmissionCount" min="0" type="number" /></label>
-        <label>포스터 URL<input name="posterUrl" placeholder="https://..." /></label>
-        <label className="wide">주제<input name="topic" placeholder="행사 주제" /></label>
-        <label>홈페이지 URL<input name="homepageUrl" placeholder="https://..." /></label>
-        <label>출품 URL<input name="submissionUrl" placeholder="https://..." /></label>
-        <label className="wide">안내사항<textarea name="notice" rows={4} placeholder="선생님에게 보여줄 주요 안내" /></label>
-        <div className="form-actions"><button className="primary-button" type="submit">행사 등록</button></div>
+      <SectionHead title="?? ??" />
+      <form className="event-editor" onSubmit={async (event) => {
+        await onCreateEvent(event);
+        setPosterPreview("");
+      }}>
+        <div className="event-fields">
+          <label className="field-title">???<input name="title" required placeholder="?: ?13? ??? 29????" /></label>
+          <div className="event-field-row">
+            <label>?? ??<select name="eventType" defaultValue={"TWENTY_NINE_SECONDS" satisfies EventType}><option value="TWENTY_NINE_SECONDS">29????</option><option value="SHORTFORM_KING">29????</option></select></label>
+            <label className="field-number">?? ?? ?<input name="targetSubmissionCount" min="1" step="1" type="number" defaultValue={10} inputMode="numeric" /></label>
+          </div>
+          <div className="event-field-row">
+            <label>????<input name="contestPeriod" placeholder="2026.04.08 - 2026.05.21" /></label>
+            <label>???/??<input name="prize" placeholder="??? ?? ??" /></label>
+          </div>
+          <label>??<input name="topic" placeholder="?? ??" /></label>
+          <label>?? URL<input name="submissionUrl" placeholder="https://..." /></label>
+          <label>????<textarea name="notice" rows={4} placeholder="????? ??? ?? ??" /></label>
+          <div className="form-actions"><button className="primary-button" type="submit">?? ??</button></div>
+        </div>
+        <aside className="poster-uploader">
+          <label className="poster-drop">
+            <input accept="image/*" name="posterFile" onChange={(event) => handlePosterChange(event.currentTarget.files?.[0])} type="file" />
+            {posterPreview ? <img alt="??? ??? ????" src={posterPreview} /> : <span><strong>??? ???</strong><small>PNG, JPG ??? ??? ?? ???????.</small></span>}
+          </label>
+        </aside>
       </form>
       <div className="sub-panel">
-        <h3>등록된 행사</h3>
-        {data.events.length ? <div className="event-list">{data.events.map((event) => <div className={`event-row ${selectedEvent?.id === event.id ? "active" : ""}`} key={event.id}><div><strong>{event.title}</strong><small>{eventTypeLabels[event.eventType]} · {event.contestPeriod || "기간 미입력"}</small></div><span className="status-pill success">{statusLabels[event.status]}</span></div>)}</div> : <EmptyState title="아직 등록된 행사가 없습니다." text="첫 꿈프 행사를 등록해 주세요." />}
+        <h3>??? ??</h3>
+        {data.events.length ? <div className="event-list">{data.events.map((event) => <div className={"event-row " + (selectedEvent?.id === event.id ? "active" : "")} key={event.id}><div><strong>{event.title}</strong><small>{eventTypeLabels[event.eventType]} ? {event.contestPeriod || "?? ???"}</small></div><span className="status-pill success">{statusLabels[event.status]}</span></div>)}</div> : <EmptyState title="?? ??? ??? ????." text="? ?? ??? ??? ???." />}
       </div>
     </section>
   );

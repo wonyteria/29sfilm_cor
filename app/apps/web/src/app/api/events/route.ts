@@ -11,6 +11,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: error instanceof Error ? error.message : "권한이 없습니다." }, { status: 401 });
   }
   const body = await request.json();
+  const targetSubmissionCount = Number.parseInt(String(body.targetSubmissionCount || "10"), 10);
   const dashboard = await addEvent({
     title: String(body.title || "").trim(),
     eventType: body.eventType,
@@ -21,7 +22,7 @@ export async function POST(request: Request) {
     homepageUrl: String(body.homepageUrl || "").trim(),
     submissionUrl: String(body.submissionUrl || "").trim(),
     notice: String(body.notice || "").trim(),
-    targetSubmissionCount: Number(body.targetSubmissionCount || 0),
+    targetSubmissionCount: Number.isFinite(targetSubmissionCount) && targetSubmissionCount > 0 ? targetSubmissionCount : 10,
     status: body.status
   });
   return NextResponse.json(dashboard);
