@@ -682,6 +682,25 @@ textarea {
   font-weight: 900;
 }
 
+.form-grid .checkbox-line {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 44px;
+  align-items: center;
+  gap: 10px;
+  align-self: end;
+  color: #0f172a;
+  cursor: pointer;
+}
+
+.checkbox-line input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  margin: 0;
+  accent-color: #3155d4;
+}
+
 .form-grid .wide,
 .form-actions {
   grid-column: 1 / -1;
