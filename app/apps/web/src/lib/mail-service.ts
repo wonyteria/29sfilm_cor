@@ -41,6 +41,16 @@ export async function scheduleMail(input: MailDraftInput) {
   });
 }
 
+export async function listScheduledMails(limit = 20) {
+  if (!isDatabaseConfigured()) return [];
+
+  return prisma.scheduledMail.findMany({
+    orderBy: { createdAt: "desc" },
+    take: limit,
+    include: { recipients: true, sendLogs: true }
+  });
+}
+
 export async function sendScheduledMail(scheduledMailId: string) {
   if (!isDatabaseConfigured()) {
     return { id: scheduledMailId, status: "SENT_DEMO" };

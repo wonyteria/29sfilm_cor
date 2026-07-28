@@ -866,6 +866,40 @@ textarea {
   line-height: 1.45;
 }
 
+.mail-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.mail-history-list {
+  display: grid;
+  gap: 10px;
+}
+
+.mail-history-item {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  border: 1px solid #dce4ef;
+  border-radius: 8px;
+  background: white;
+  padding: 12px;
+  color: #0f172a;
+  text-align: left;
+}
+
+.mail-history-item:hover {
+  border-color: #9eb4f4;
+  background: #f8fbff;
+}
+
+.mail-history-item small {
+  color: #64748b;
+}
+
 .compact-row.active {
   border-color: #9eb4f4;
   background: #edf3ff;

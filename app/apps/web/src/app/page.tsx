@@ -247,14 +247,15 @@ export default function HomePage() {
         subject: formData.get("subject"),
         body: formData.get("body"),
         scheduledAt: formData.get("scheduledAt"),
-        sendNow: formData.get("sendNow") === "on"
+        action: formData.get("action")
       })
     });
     if (!response.ok) {
       setMessage(await readErrorMessage(response));
       return;
     }
-    setMessage(formData.get("sendNow") === "on" ? "운영 공지를 발송했습니다." : "메일 초안/예약을 저장했습니다.");
+    const action = formData.get("action");
+    setMessage(action === "send" ? "운영 공지를 발송했습니다." : action === "schedule" ? "예약 메일을 저장했습니다." : "메일 초안을 저장했습니다.");
     event.currentTarget.reset();
     await loadDashboard();
   }
@@ -454,7 +455,7 @@ function TeacherAvailableEvents({ events, onApply, currentUser }: { events: Drea
                 </dl>
                 <p className="event-notice">{event.notice || "등록된 안내사항이 없습니다."}</p>
                 <div className="button-row">
-                  {event.submissionUrl ? <a className="ghost-button" href={event.submissionUrl} rel="noreferrer" target="_blank">????</a> : null}
+                  {event.submissionUrl ? <a className="ghost-button" href={event.submissionUrl} rel="noreferrer" target="_blank">출품하기</a> : null}
                   <button className="primary-button" onClick={() => setOpenEventId(openEventId === event.id ? "" : event.id)} type="button">신청하기</button>
                 </div>
                 {openEventId === event.id ? (
@@ -740,6 +741,17 @@ function DocumentsPage({ data, selectedEvent }: { data: DashboardResponse; selec
   );
 }
 
+type MailHistoryItem = {
+  id: string;
+  subject: string;
+  body: string;
+  status: string;
+  scheduledAt?: string | null;
+  sentAt?: string | null;
+  createdAt: string;
+  recipients?: Array<{ email: string; schoolName?: string | null; teacherName?: string | null; isExcluded?: boolean }>;
+};
+
 function MailsPage({ data, selectedEvent, onSubmit }: { data: DashboardResponse; selectedEvent?: DreamEvent; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
   const recipientCandidates = data.applications
     .filter((application) => application.status === "SELECTED" && (!selectedEvent || application.eventId === selectedEvent.id))
@@ -749,30 +761,68 @@ function MailsPage({ data, selectedEvent, onSubmit }: { data: DashboardResponse;
       return teacher?.email ? { application, teacher, eventItem, email: teacher.email } : null;
     })
     .filter(Boolean) as Array<{ application: DreamApplication; teacher: TeacherProfile; eventItem?: DreamEvent; email: string }>;
-  const recipientKey = `${selectedEvent?.id || "all"}:${recipientCandidates.map((candidate) => candidate.application.id).join("|")}`;
+  const recipientKey = (selectedEvent?.id || "all") + ":" + recipientCandidates.map((candidate) => candidate.application.id).join("|");
   const [checkedEmails, setCheckedEmails] = useState<string[]>(() => [...new Set(recipientCandidates.map((candidate) => candidate.email))]);
-  const selectedEmails = checkedEmails.join("\n");
+  const [recipientText, setRecipientText] = useState(checkedEmails.join("\n"));
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [scheduledAt, setScheduledAt] = useState("");
+  const [mailHistory, setMailHistory] = useState<MailHistoryItem[]>([]);
 
   useEffect(() => {
-    setCheckedEmails([...new Set(recipientCandidates.map((candidate) => candidate.email))]);
+    const nextEmails = [...new Set(recipientCandidates.map((candidate) => candidate.email))];
+    setCheckedEmails(nextEmails);
+    setRecipientText(nextEmails.join("\n"));
   }, [recipientKey]);
 
+  useEffect(() => {
+    void loadMailHistory();
+  }, []);
+
+  async function loadMailHistory() {
+    const response = await fetch("/api/mails");
+    if (!response.ok) return;
+    const result = (await response.json()) as { mails?: MailHistoryItem[] };
+    setMailHistory(result.mails ?? []);
+  }
+
   function toggleRecipient(email: string) {
-    setCheckedEmails((current) => current.includes(email) ? current.filter((item) => item !== email) : [...current, email]);
+    setCheckedEmails((current) => {
+      const nextEmails = current.includes(email) ? current.filter((item) => item !== email) : [...current, email];
+      setRecipientText(nextEmails.join("\n"));
+      return nextEmails;
+    });
   }
 
   function selectAllRecipients() {
-    setCheckedEmails([...new Set(recipientCandidates.map((candidate) => candidate.email))]);
+    const nextEmails = [...new Set(recipientCandidates.map((candidate) => candidate.email))];
+    setCheckedEmails(nextEmails);
+    setRecipientText(nextEmails.join("\n"));
   }
 
   function clearRecipients() {
     setCheckedEmails([]);
+    setRecipientText("");
+  }
+
+  function loadMail(mail: MailHistoryItem) {
+    const emails = (mail.recipients ?? []).filter((recipient) => !recipient.isExcluded).map((recipient) => recipient.email);
+    setRecipientText(emails.join("\n"));
+    setCheckedEmails(emails);
+    setSubject(mail.subject);
+    setBody(mail.body);
+    setScheduledAt(mail.scheduledAt ? mail.scheduledAt.slice(0, 16) : "");
+  }
+
+  async function submitAndRefresh(event: FormEvent<HTMLFormElement>) {
+    await onSubmit(event);
+    await loadMailHistory();
   }
 
   return (
     <section className="panel">
-      <SectionHead title="메일/공지" text="선정 안내, 출품 리마인드, 확인서 발급 공지를 저장하거나 Gmail SMTP로 즉시 발송합니다." />
-      <form className="form-grid" onSubmit={onSubmit}>
+      <SectionHead title="메일/공지" text="초안 저장, 예약 저장, 즉시 발송을 분리해 관리합니다." />
+      <form className="form-grid" onSubmit={submitAndRefresh}>
         <div className="wide recipient-picker">
           <div className="recipient-picker-head">
             <strong>수신 학교 선택</strong>
@@ -797,13 +847,35 @@ function MailsPage({ data, selectedEvent, onSubmit }: { data: DashboardResponse;
             <EmptyState title="선정된 학교가 없습니다." text="현재 선택한 꿈프에서 학교를 선정하면 메일 수신 후보로 자동 표시됩니다." />
           )}
         </div>
-        <label className="wide">수신자 이메일<textarea key={selectedEmails} name="recipientEmails" rows={4} defaultValue={selectedEmails} placeholder="teacher@example.com&#10;teacher2@example.com" required /></label>
-        <label className="wide">제목<input name="subject" required placeholder="꿈프 선정 및 출품 안내" /></label>
-        <label className="wide">본문<textarea name="body" rows={8} required placeholder="발송 전 관리자가 검토할 메일 본문" /></label>
-        <label>예약 시각<input name="scheduledAt" type="datetime-local" /></label>
-        <label className="checkbox-line"><input name="sendNow" type="checkbox" /> 즉시 발송</label>
-        <div className="form-actions"><button className="primary-button" type="submit">메일 저장/발송</button>{selectedEmails ? <a className="ghost-button" href={`mailto:?bcc=${encodeURIComponent(selectedEmails.replace(/\n/g, ","))}`}>메일앱 열기</a> : null}</div>
+        <label className="wide">수신자 이메일<textarea name="recipientEmails" rows={4} value={recipientText} onChange={(event) => setRecipientText(event.currentTarget.value)} placeholder="teacher@example.com&#10;teacher2@example.com" required /></label>
+        <label className="wide">제목<input name="subject" required value={subject} onChange={(event) => setSubject(event.currentTarget.value)} placeholder="꿈프 선정 및 출품 안내" /></label>
+        <label className="wide">본문<textarea name="body" rows={8} required value={body} onChange={(event) => setBody(event.currentTarget.value)} placeholder="발송 전 관리자가 검토할 메일 본문" /></label>
+        <label>예약 시각<input name="scheduledAt" type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.currentTarget.value)} /></label>
+        <div className="mail-actions">
+          <button className="ghost-button" name="action" type="submit" value="save">초안 저장</button>
+          <button className="ghost-button" name="action" type="submit" value="schedule">예약 저장</button>
+          <button className="primary-button" name="action" type="submit" value="send">즉시 발송</button>
+          {recipientText ? <a className="ghost-button" href={"mailto:?bcc=" + encodeURIComponent(recipientText.replace(/\n/g, ","))}>메일앱 열기</a> : null}
+        </div>
       </form>
+      <div className="sub-panel">
+        <div className="recipient-picker-head">
+          <h3>저장한 메일</h3>
+          <button className="ghost-button" onClick={loadMailHistory} type="button">새로고침</button>
+        </div>
+        {mailHistory.length ? (
+          <div className="mail-history-list">
+            {mailHistory.map((mail) => (
+              <button className="mail-history-item" key={mail.id} onClick={() => loadMail(mail)} type="button">
+                <strong>{mail.subject}</strong>
+                <small>{mail.status} · {(mail.recipients ?? []).filter((recipient) => !recipient.isExcluded).length}명 · {new Date(mail.createdAt).toLocaleString("ko-KR")}</small>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <EmptyState title="저장된 메일이 없습니다." text="초안 저장 또는 예약 저장을 하면 이곳에서 다시 불러올 수 있습니다." />
+        )}
+      </div>
     </section>
   );
 }
