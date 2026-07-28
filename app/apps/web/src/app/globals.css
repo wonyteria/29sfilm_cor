@@ -116,6 +116,12 @@ button {
   margin-bottom: 12px;
 }
 
+.auth-note {
+  margin: 8px 0 0;
+  color: #64748b;
+  line-height: 1.5;
+}
+
 .auth-switch {
   display: flex;
   justify-content: center;
@@ -338,8 +344,6 @@ textarea {
 .teacher-application-card,
 .teacher-event-card,
 .event-row,
-.empty-state,
-.admin-command,
 .event-summary-card {
   border: 1px solid #dce4ef;
   border-radius: 8px;
@@ -373,27 +377,6 @@ textarea {
   max-width: 720px;
   font-size: clamp(24px, 3vw, 36px);
   line-height: 1.18;
-}
-
-.admin-command {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  margin-bottom: 18px;
-  padding: 22px;
-  box-shadow: 0 14px 36px rgb(15 23 42 / 6%);
-}
-
-.admin-command h2 {
-  margin: 4px 0 6px;
-  font-size: 24px;
-  letter-spacing: 0;
-}
-
-.admin-command p {
-  margin: 0;
-  color: #64748b;
 }
 
 .teacher-hero p:last-child {
@@ -736,13 +719,12 @@ textarea {
 }
 
 .empty-state {
-  padding: 22px;
-  background: #fbfdff;
+  padding: 14px 2px 2px;
 }
 
 .empty-state p {
-  margin: 8px 0 0;
-  line-height: 1.55;
+  margin: 6px 0 0;
+  line-height: 1.5;
 }
 
 .table-wrap {
@@ -791,8 +773,7 @@ th {
     grid-template-columns: 1fr;
   }
 
-  .event-summary-card,
-  .admin-command {
+  .event-summary-card {
     display: grid;
     grid-template-columns: 1fr;
   }

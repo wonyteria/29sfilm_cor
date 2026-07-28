@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import { Bell, CheckCircle2, FileCheck2, Gift, Home, Mail, Plus, RefreshCw, RotateCcw, Upload } from "lucide-react";
+import { Bell, CheckCircle2, FileCheck2, Gift, Home, Mail, Plus, RefreshCw, Upload } from "lucide-react";
 import type { DashboardResponse, DreamApplication, DreamEvent, EventType, SubmissionWork } from "@/lib/with-types";
 import { applicationStatusLabels, eventTypeLabels, matchStatusLabels, statusLabels } from "@/lib/with-types";
 
@@ -113,7 +113,7 @@ export default function HomePage() {
     setCurrentUser(body.user);
     setMode(body.user.userType === "ADMIN" ? "admin" : "teacher");
     setAuthPanel("login");
-    setMessage(`${body.user.name} 계정으로 로그인했습니다.`);
+    setMessage("");
   }
 
   async function handleSignup(event: FormEvent<HTMLFormElement>) {
@@ -138,7 +138,7 @@ export default function HomePage() {
     await fetch("/api/auth/logout", { method: "POST" });
     setCurrentUser(null);
     setMode("teacher");
-    setMessage("로그아웃했습니다.");
+    setMessage("");
   }
 
   async function postJson(url: string, body?: unknown, doneMessage = "저장되었습니다.", method = "POST") {
@@ -261,12 +261,6 @@ export default function HomePage() {
     await loadDashboard();
   }
 
-  async function handleReset() {
-    if (!confirm("등록된 행사, 쿠폰, 출품 분석 데이터를 모두 초기화할까요?")) return;
-    await postJson("/api/reset", undefined, "운영 데이터를 초기화했습니다.");
-    setSelectedEventId("");
-  }
-
   const navItems = mode === "teacher" ? teacherPages : adminPages;
   const activeKey = mode === "teacher" ? teacherPage : adminPage;
 
@@ -345,7 +339,6 @@ export default function HomePage() {
                 {currentUser.userType === "ADMIN" ? "관리자" : "선생님"} {currentUser.emailVerified ? "인증됨" : "미인증"} · 로그아웃
               </button>
             ) : null}
-            {mode === "admin" ? <button className="ghost-button danger-button" onClick={handleReset} type="button"><RotateCcw size={16} /> 초기화</button> : null}
           </div>
         </header>
 
@@ -411,9 +404,11 @@ function TeacherPortal({ page, data, setPage, onApply, currentUser }: { page: Te
 }
 
 function AuthPanel({ mode, onLogin, onSignup }: { mode: "login" | "signup"; onLogin: (event: FormEvent<HTMLFormElement>) => void; onSignup: (event: FormEvent<HTMLFormElement>) => void }) {
+  const authText = mode === "login" ? "가입한 이메일과 비밀번호로 로그인합니다." : "선생님 전용 가입입니다. 업무용 이메일로 가입하고 인증 메일을 확인하세요.";
   return (
     <section className="panel auth-panel">
-      <SectionHead title={mode === "login" ? "이메일 로그인" : "회원가입"} text={mode === "login" ? "가입한 이메일과 비밀번호로 로그인합니다." : "선생님 전용 가입입니다. 업무용 이메일로 가입하고 인증 메일을 확인하세요."} />
+      <SectionHead title={mode === "login" ? "이메일 로그인" : "회원가입"} />
+      <p className="auth-note">{authText}</p>
       {mode === "login" ? (
         <form className="form-grid" onSubmit={onLogin}>
           <label>이메일<input name="email" required type="email" placeholder="teacher@example.com" /></label>
@@ -534,18 +529,6 @@ function AdminDashboard({ data, selectedEvent, setPage }: { data: DashboardRespo
   const selectedReview = selectedWorks.filter((item) => item.matchStatus !== "MATCHED").length;
   return (
     <>
-      <section className="admin-command">
-        <div>
-          <p className="eyebrow">오늘 처리할 일</p>
-          <h2>{selectedEvent ? selectedEvent.title : "진행 중인 꿈프를 선택하세요"}</h2>
-          <p>{selectedEvent ? `${eventTypeLabels[selectedEvent.eventType]} · ${statusLabels[selectedEvent.status]} · 목표 ${selectedEvent.targetSubmissionCount || 0}편` : "행사를 등록하면 신청, 출품, 쿠폰, 확인서 업무가 행사 기준으로 정리됩니다."}</p>
-        </div>
-        <div className="top-actions">
-          <button className="ghost-button" onClick={() => setPage("events")} type="button"><Plus size={16} /> 새 행사</button>
-          <button className="primary-button" onClick={() => setPage(selectedReview ? "submissions" : "applications")} type="button">{selectedReview ? "매칭 검토" : "신청 검토"}</button>
-        </div>
-      </section>
-
       <section className="metric-grid">
         <MetricCard label="진행 꿈프" value={`${data.stats.activeEventCount}개`} />
         <MetricCard label="선정 학교" value={`${data.stats.selectedSchoolCount}교`} />
@@ -554,19 +537,23 @@ function AdminDashboard({ data, selectedEvent, setPage }: { data: DashboardRespo
       </section>
 
       <section className="panel">
-        <SectionHead title="행사별 현황" text="ATS 파이프라인처럼 행사마다 접수, 선정, 출품 확인 상태를 한눈에 봅니다." />
+        <SectionHead title="행사별 현황" />
         {data.events.length ? (
           <div className="event-list">{data.events.map((event) => <EventSummaryCard key={event.id} event={event} applications={data.applications} works={data.submissions} selected={event.id === selectedEvent?.id} />)}</div>
         ) : (
-          <EmptyState title="등록된 꿈프 행사가 없습니다." text="새 행사를 등록하면 대시보드와 선생님 신청 화면이 채워집니다." />
+          <EmptyState title="등록된 꿈프 행사가 없습니다." text="새 행사를 등록해 주세요." />
         )}
+        <div className="panel-action">
+          <button className="primary-button" onClick={() => setPage("events")} type="button"><Plus size={16} /> 새 행사 등록</button>
+          {selectedEvent ? <button className="ghost-button" onClick={() => setPage(selectedReview ? "submissions" : "applications")} type="button">{selectedReview ? "매칭 검토" : "신청 검토"}</button> : null}
+        </div>
       </section>
 
-      <section className="action-grid">
+      {selectedEvent ? <section className="action-grid">
         <ActionCard icon={<FileCheck2 size={18} />} title="신청/선정 검토" text={`${selectedApplications.length}건의 신청을 선착순, 패널티, 성실 참여 기준으로 확인`} onClick={() => setPage("applications")} />
         <ActionCard icon={<Upload size={18} />} title="출품 엑셀 분석" text={`${selectedWorks.length}편 분석됨. 확인 필요 ${selectedReview}건`} onClick={() => setPage("submissions")} />
         <ActionCard icon={<Mail size={18} />} title="메일/공지 관리" text="예약 메일, 리마인드, 확인서 발급 안내를 작성" onClick={() => setPage("mails")} />
-      </section>
+      </section> : null}
     </>
   );
 }
@@ -723,8 +710,8 @@ function MetricCard({ label, value, danger = false }: { label: string; value: st
   return <article className="metric-card"><span>{label}</span><strong className={danger ? "danger-text" : ""}>{value}</strong></article>;
 }
 
-function SectionHead({ title, text }: { title: string; text: string }) {
-  return <div className="section-head"><div><h2>{title}</h2><p className="muted">{text}</p></div></div>;
+function SectionHead({ title }: { title: string; text?: string }) {
+  return <div className="section-head"><div><h2>{title}</h2></div></div>;
 }
 
 function EmptyState({ title, text }: { title: string; text: string }) {
