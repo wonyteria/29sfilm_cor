@@ -1,0 +1,6 @@
+{
+  "name": "29sfilm-cor-deploy-root",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Root package marker for Mini deployment. The actual app lives in ./app."
+}
