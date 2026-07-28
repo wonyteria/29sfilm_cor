@@ -50,7 +50,26 @@ button {
   color: #111827;
 }
 
+.login-main-logo {
+  display: block;
+  width: min(360px, 54vw);
+  height: 62px;
+  object-fit: contain;
+  object-position: left center;
+}
+
+.login-sub-logo {
+  display: block;
+  width: 150px;
+  height: 28px;
+  margin-bottom: 22px;
+  object-fit: contain;
+  object-position: left center;
+}
+
 .login-brand-box small {
+  display: block;
+  margin-top: 8px;
   color: #64748b;
 }
 
@@ -124,7 +143,8 @@ button {
   margin-bottom: 28px;
 }
 
-.brand-box > span {
+.brand-box > span,
+.brand-symbol {
   display: grid;
   width: 44px;
   height: 44px;
@@ -133,6 +153,18 @@ button {
   background: white;
   color: #111827;
   font-weight: 900;
+}
+
+.brand-symbol {
+  object-fit: cover;
+}
+
+.side-logo {
+  display: block;
+  width: 132px;
+  height: 34px;
+  object-fit: contain;
+  object-position: left center;
 }
 
 .brand-box strong,

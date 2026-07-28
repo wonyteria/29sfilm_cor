@@ -275,12 +275,13 @@ export default function HomePage() {
       <main className="login-shell">
         <section className="login-brand">
           <div className="brand-box login-brand-box">
-            <span>29</span>
+            <img alt="29초영화제 심볼" className="brand-symbol" src="/brand/29film-symbol.jpg" />
             <div>
-              <strong>29 WITH</strong>
+              <img alt="29초영화제" className="login-main-logo" src="/brand/29film-logo-black.png" />
               <small>영상 꿈나무 양성 프로젝트</small>
             </div>
           </div>
+          <img alt="한국경제신문" className="login-sub-logo" src="/brand/hankyung-logo-color.png" />
           <h1>영상을 꿈꾸는 학생들 곁의 선생님을 위한 공간입니다.</h1>
           <p>꿈나무 양성 프로젝트는 학생들이 직접 만들고 출품하는 과정을 학교 현장에서 이끌어 주시는 선생님을 지원하기 위해 운영됩니다.</p>
           <div className="login-highlights">
@@ -310,9 +311,9 @@ export default function HomePage() {
     <main className={`app-shell ${mode === "teacher" ? "teacher-shell" : "admin-shell"}`}>
       <aside className="side-nav">
         <div className="brand-box">
-          <span>29</span>
+          <img alt="29초영화제 심볼" className="brand-symbol" src="/brand/29film-symbol.jpg" />
           <div>
-            <strong>29 WITH</strong>
+            <img alt="29초영화제" className="side-logo" src="/brand/29film-logo-white.png" />
             <small>{mode === "teacher" ? "선생님 포털" : "운영 관리자"}</small>
           </div>
         </div>
