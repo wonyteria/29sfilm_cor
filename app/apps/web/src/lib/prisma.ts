@@ -24,6 +24,10 @@ function withConnectionLimit(url?: string) {
 
   try {
     const parsed = new URL(url);
+    if (parsed.hostname.includes("pooler.supabase.com") && parsed.port === "5432") {
+      parsed.port = "6543";
+      parsed.searchParams.set("pgbouncer", "true");
+    }
     if (!parsed.searchParams.has("connection_limit")) {
       parsed.searchParams.set("connection_limit", "1");
     }
