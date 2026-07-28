@@ -19,6 +19,7 @@ import {
   analyzeDbSubmissions,
   buildDbDashboard,
   readDbState,
+  resetDbState,
   updateDbApplicationStatus
 } from "./db-store";
 
@@ -98,9 +99,7 @@ export function buildDashboard(state: AppState): DashboardResponse {
 }
 
 export async function resetState() {
-  if (isDatabaseConfigured()) {
-    throw new Error("DB 운영 모드에서는 전체 초기화를 막았습니다. 필요한 경우 DB 관리 도구에서 명시적으로 처리하세요.");
-  }
+  if (isDatabaseConfigured()) return resetDbState();
   return writeState(cloneState(emptyState));
 }
 
@@ -121,14 +120,14 @@ export async function addEvent(input: Omit<DreamEvent, "id" | "createdAt">) {
 export async function addCoupons(couponNumbers: string[], upload?: { fileName?: string; dataUrl?: string }) {
   if (isDatabaseConfigured()) return addDbCoupons(couponNumbers, upload);
   const state = await readState();
-  const existing = new Set(state.coupons.map((coupon) => coupon.couponNumber));
+  const existing = new Set(state.coupons.map((coupon) => coupon.couponNumber.toUpperCase()));
   const seenInUpload = new Set<string>();
   const normalized = couponNumbers
     .map((couponNumber) => couponNumber.trim())
     .filter(isCouponLike)
     .filter((couponNumber) => {
       const key = couponNumber.toUpperCase();
-      if (existing.has(couponNumber) || existing.has(key) || seenInUpload.has(key)) return false;
+      if (existing.has(key) || seenInUpload.has(key)) return false;
       seenInUpload.add(key);
       return true;
     });
@@ -160,7 +159,11 @@ export async function addCertificateTemplate(fileName: string, dataUrl?: string)
   return buildDashboard(state);
 }
 
-export async function analyzeSubmissions(eventId: string, rows: Array<Record<string, string | number | undefined>>, upload?: { fileName?: string; dataUrl?: string }) {
+export async function analyzeSubmissions(
+  eventId: string,
+  rows: Array<Record<string, string | number | undefined>>,
+  upload?: { fileName?: string; dataUrl?: string }
+) {
   if (isDatabaseConfigured()) return analyzeDbSubmissions(eventId, rows, upload);
   const state = await readState();
   const event = state.events.find((item) => item.id === eventId);
@@ -220,7 +223,7 @@ export async function addApplication(input: {
     status: "SUBMITTED",
     createdAt: now()
   });
-  state.notices.unshift(makeNotice("신청 접수", `${input.schoolName} ${input.teacherName} 선생님 신청이 접수되었습니다.`));
+  state.notices.unshift(makeNotice("신청 접수", `${input.schoolName} ${input.teacherName} 선생님의 신청을 접수했습니다.`));
   await writeState(state);
   return buildDashboard(state);
 }
@@ -329,9 +332,10 @@ function levenshtein(left: string, right: string) {
 }
 
 function isCouponLike(value: string) {
-  if (!value) return false;
-  if (/쿠폰|coupon|code|번호/i.test(value)) return false;
-  return /[A-Za-z0-9]{2,}(?:-[A-Za-z0-9]{2,})+/.test(value) || /^[A-Za-z0-9]{6,}$/.test(value);
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (/^(쿠폰|쿠폰번호|번호|coupon|couponcode|code)$/i.test(trimmed.replace(/\s/g, ""))) return false;
+  return /[A-Za-z0-9]{2,}(?:-[A-Za-z0-9]{2,})+/.test(trimmed) || /^[A-Za-z0-9]{6,}$/.test(trimmed);
 }
 
 function text(value: string | number | undefined) {

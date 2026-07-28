@@ -64,13 +64,14 @@ export async function loginWithPassword(email: string, password: string) {
       id: `demo-${demoRole.toLowerCase()}`,
       userType: demoRole,
       name: demoRole === "ADMIN" ? "관리자" : "선생님",
-      email
+      email,
+      emailVerified: true
     } satisfies SessionUser;
   }
 
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user || !(await verifyPassword(password, user.passwordHash))) return null;
-  return { id: user.id, userType: user.userType, name: user.name, email: user.email } satisfies SessionUser;
+  return { id: user.id, userType: user.userType, name: user.name, email: user.email, emailVerified: true } satisfies SessionUser;
 }
 
 export async function signupWithPassword(input: {

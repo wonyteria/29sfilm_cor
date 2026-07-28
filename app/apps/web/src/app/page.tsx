@@ -210,7 +210,7 @@ export default function HomePage() {
     try {
       const couponNumbers = (await readSheetCellValues(file))
         .map((value) => String(value ?? "").trim())
-        .filter((value) => value && !/쿠폰|coupon/i.test(value));
+        .filter((value) => value && !/^(쿠폰|쿠폰번호|번호|coupon|couponcode|code)$/i.test(value.replace(/\s/g, "")));
       await postJson(
         "/api/coupons",
         { couponNumbers, fileName: file.name, dataUrl: await fileToDataUrl(file) },

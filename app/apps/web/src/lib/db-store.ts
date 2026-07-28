@@ -15,6 +15,13 @@ import type {
 
 type Row = Record<string, string | number | undefined>;
 type UploadedSubmissionWork = SubmissionWork & { eventType: "TWENTY_NINE_SECONDS" | "SHORTFORM_KING" };
+type ApplicationForMatch = {
+  id: string;
+  schoolNameSnapshot: string;
+  affiliationNameSnapshot: string;
+  participation: { id: string } | null;
+  dreamEvent: { event: { eventType: "TWENTY_NINE_SECONDS" | "SHORTFORM_KING" } };
+};
 
 export async function readDbState(): Promise<AppState> {
   const [events, teachers, applications, submissions, coupons, certificateTemplates, notices] = await Promise.all([
@@ -42,7 +49,7 @@ export async function readDbState(): Promise<AppState> {
       posterUrl: item.event.posterFileId ?? "",
       contestPeriod: formatPeriod(item.event.contestStartAt, item.event.contestEndAt),
       topic: item.event.topic ?? "",
-      prize: "",
+      prize: extractPrize(item.event.notice),
       homepageUrl: item.event.homepageUrl ?? "",
       submissionUrl: item.event.submissionUrl ?? "",
       notice: item.event.notice ?? "",
@@ -68,17 +75,13 @@ export async function readDbState(): Promise<AppState> {
       usagePlan: item.usagePlan ?? "",
       plannedSubmissionDate: item.plannedSubmissionDate?.toISOString() ?? "",
       memo: item.memo ?? "",
-      status: item.status === "CANCELED" || item.status === "DRAFT" || item.status === "UNDER_REVIEW" ? "SUBMITTED" : item.status,
+      status: normalizeApplicationStatus(item.status),
       createdAt: item.appliedAt.toISOString()
     } satisfies DreamApplication)),
     submissions: submissions.map((item) => {
       const match = item.matches[0];
       const application = match?.participation.application;
-      const matchStatus = match
-        ? match.matchType === "EXACT"
-          ? "MATCHED"
-          : "NEEDS_REVIEW"
-        : "MISSING";
+      const matchStatus = match ? (match.matchType === "EXACT" ? "MATCHED" : "NEEDS_REVIEW") : "MISSING";
       const raw = (item.rawData ?? {}) as Record<string, unknown>;
       return {
         id: item.id,
@@ -94,12 +97,7 @@ export async function readDbState(): Promise<AppState> {
         rank: typeof raw.rank === "number" ? raw.rank : undefined,
         finalRoundStatus: item.finalResult === "1차통과" ? "ADVANCED" : item.finalResult ? "NOT_ADVANCED" : "NOT_USED",
         matchStatus,
-        matchReason:
-          matchStatus === "MATCHED"
-            ? "신청한 출품 소속명과 완전히 일치합니다."
-            : matchStatus === "NEEDS_REVIEW"
-              ? "띄어쓰기 또는 한 글자 차이가 있어 관리자 확인이 필요합니다."
-              : "일치하는 신청 학교가 없습니다."
+        matchReason: matchReasonFor(matchStatus)
       } satisfies SubmissionWork;
     }),
     coupons: coupons.map((item) => ({
@@ -121,6 +119,38 @@ export async function readDbState(): Promise<AppState> {
       createdAt: item.createdAt.toISOString()
     } satisfies AdminNotice))
   };
+}
+
+export async function resetDbState(): Promise<AppState> {
+  await prisma.$transaction(async (tx) => {
+    await tx.mailSendLog.deleteMany();
+    await tx.mailRecipient.deleteMany();
+    await tx.scheduledMail.deleteMany();
+    await tx.mailTemplate.deleteMany();
+    await tx.scoreReportEntry.deleteMany();
+    await tx.scoreReport.deleteMany();
+    await tx.activityCertificate.deleteMany();
+    await tx.certificateTemplate.deleteMany();
+    await tx.snackSupport.deleteMany();
+    await tx.couponAssignment.deleteMany();
+    await tx.coupon.deleteMany();
+    await tx.teacherRequest.deleteMany();
+    await tx.submissionMatch.deleteMany();
+    await tx.submissionSlot.deleteMany();
+    await tx.externalSubmission.deleteMany();
+    await tx.externalEventConnection.deleteMany();
+    await tx.dreamParticipation.deleteMany();
+    await tx.dreamApplication.deleteMany();
+    await tx.dreamEvent.deleteMany();
+    await tx.event.deleteMany();
+    await tx.schoolAdminMemo.deleteMany();
+    await tx.schoolParticipationSummary.deleteMany();
+    await tx.teacherProfile.deleteMany();
+    await tx.fileAsset.deleteMany();
+    await tx.auditLog.deleteMany();
+    await tx.user.deleteMany({ where: { userType: "TEACHER" } });
+  });
+  return readDbState();
 }
 
 export function buildDbDashboard(state: AppState): DashboardResponse {
@@ -149,7 +179,7 @@ export async function addDbEvent(input: Omit<DreamEvent, "id" | "createdAt">) {
         topic: input.topic || null,
         homepageUrl: input.homepageUrl || null,
         submissionUrl: input.submissionUrl || null,
-        notice: [input.prize ? `혜택: ${input.prize}` : "", input.notice].filter(Boolean).join("\n") || null,
+        notice: [input.prize ? `총상금: ${input.prize}` : "", input.notice].filter(Boolean).join("\n") || null,
         status: input.status === "RECRUITING" ? "RECRUITING" : "UPCOMING"
       }
     });
@@ -279,14 +309,16 @@ export async function analyzeDbSubmissions(eventId: string, rows: Row[], upload?
     where: { dreamEventId: eventId },
     include: { participation: true, dreamEvent: { include: { event: true } } }
   });
-  const works = rankWorks(rows.map((row) => normalizeSubmissionRow(eventId, row, applications)).filter((work) => work.affiliationName || work.title));
+  const works = rankWorks(
+    rows.map((row) => normalizeSubmissionRow(eventId, row, applications)).filter((work) => work.affiliationName || work.title)
+  );
 
   await prisma.$transaction(async (tx) => {
     const connection = await tx.externalEventConnection.create({
       data: {
         dreamEventId: eventId,
         externalEventKey: `upload-${Date.now()}`,
-        externalEventName: "관리자 출품 엑셀 업로드",
+        externalEventName: upload?.fileName || "관리자 출품 엑셀 업로드",
         status: "SYNCED"
       }
     });
@@ -323,7 +355,7 @@ export async function analyzeDbSubmissions(eventId: string, rows: Row[], upload?
   return buildDbDashboard(await readDbState());
 }
 
-function normalizeSubmissionRow(eventId: string, row: Row, applications: Array<{ id: string; schoolNameSnapshot: string; affiliationNameSnapshot: string; dreamEvent?: { event?: { eventType?: "TWENTY_NINE_SECONDS" | "SHORTFORM_KING" } } }>): UploadedSubmissionWork {
+function normalizeSubmissionRow(eventId: string, row: Row, applications: ApplicationForMatch[]): UploadedSubmissionWork {
   const affiliationName = text(pick(row, ["소속", "소속명", "팀명", "affiliation", "team"]));
   const title = text(pick(row, ["작품명", "작품제목", "제목", "title"]));
   const participantName = text(pick(row, ["감독", "출품자", "이름", "participant", "director"]));
@@ -332,6 +364,7 @@ function normalizeSubmissionRow(eventId: string, row: Row, applications: Array<{
   const finalResult = text(pick(row, ["수상결과", "본심", "finalResult"]));
   const exact = applications.find((application) => application.affiliationNameSnapshot === affiliationName);
   const similar = exact ? undefined : applications.find((application) => isSimilar(application.affiliationNameSnapshot, affiliationName));
+  const matchStatus = exact ? "MATCHED" : similar ? "NEEDS_REVIEW" : "MISSING";
   return {
     id: `work_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     eventId,
@@ -344,15 +377,18 @@ function normalizeSubmissionRow(eventId: string, row: Row, applications: Array<{
     preliminaryScore: score,
     finalResult,
     finalRoundStatus: finalResult === "1차통과" ? "ADVANCED" : finalResult ? "NOT_ADVANCED" : "NOT_USED",
-    matchStatus: exact ? "MATCHED" : similar ? "NEEDS_REVIEW" : "MISSING",
-    matchReason: exact ? "신청한 출품 소속명과 완전히 일치합니다." : similar ? "띄어쓰기 또는 한 글자 차이가 있어 관리자 확인이 필요합니다." : "일치하는 신청 학교가 없습니다.",
-    eventType: exact?.dreamEvent?.event?.eventType ?? similar?.dreamEvent?.event?.eventType ?? "TWENTY_NINE_SECONDS"
+    matchStatus,
+    matchReason: matchReasonFor(matchStatus),
+    eventType: exact?.dreamEvent.event.eventType ?? similar?.dreamEvent.event.eventType ?? "TWENTY_NINE_SECONDS"
   };
 }
 
 function rankWorks<T extends SubmissionWork>(works: T[]) {
   const grouped = new Map<string, SubmissionWork[]>();
-  for (const work of works) grouped.set(work.affiliationName || "미분류", [...(grouped.get(work.affiliationName || "미분류") ?? []), work]);
+  for (const work of works) {
+    const key = work.affiliationName || "미분류";
+    grouped.set(key, [...(grouped.get(key) ?? []), work]);
+  }
   for (const group of grouped.values()) {
     group.sort((left, right) => (right.preliminaryScore ?? -1) - (left.preliminaryScore ?? -1)).forEach((work, index) => {
       work.rank = index + 1;
@@ -361,7 +397,13 @@ function rankWorks<T extends SubmissionWork>(works: T[]) {
   return works;
 }
 
-async function audit(tx: Prisma.TransactionClient, action: string, entityType: string, entityId: string, afterData?: Prisma.InputJsonValue) {
+async function audit(
+  tx: Prisma.TransactionClient,
+  action: string,
+  entityType: string,
+  entityId: string,
+  afterData?: Prisma.InputJsonValue
+) {
   await tx.auditLog.create({ data: { action, entityType, entityId, afterData } });
 }
 
@@ -370,10 +412,20 @@ function formatPeriod(start?: Date | null, end?: Date | null) {
   return [start?.toISOString().slice(0, 10), end?.toISOString().slice(0, 10)].filter(Boolean).join(" - ");
 }
 
+function extractPrize(notice?: string | null) {
+  const match = notice?.match(/^총상금:\s*(.+)$/m);
+  return match?.[1] ?? "";
+}
+
 function toDreamOperationStatus(status: EventStatus) {
   if (status === "CERTIFICATE_READY") return "CERTIFICATE_RUNNING";
   if (status === "SCORE_READY") return "SCORE_REPORT_RUNNING";
   return status;
+}
+
+function normalizeApplicationStatus(status: string): DreamApplication["status"] {
+  if (status === "SELECTED" || status === "WAITLISTED" || status === "NOT_SELECTED") return status;
+  return "SUBMITTED";
 }
 
 function pick(row: Row, keys: string[]) {
@@ -410,9 +462,16 @@ function levenshtein(left: string, right: string) {
 }
 
 function isCouponLike(value: string) {
-  if (!value) return false;
-  if (/쿠폰|coupon|code|번호/i.test(value)) return false;
-  return /[A-Za-z0-9]{2,}(?:-[A-Za-z0-9]{2,})+/.test(value) || /^[A-Za-z0-9]{6,}$/.test(value);
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (/^(쿠폰|쿠폰번호|번호|coupon|couponcode|code)$/i.test(trimmed.replace(/\s/g, ""))) return false;
+  return /[A-Za-z0-9]{2,}(?:-[A-Za-z0-9]{2,})+/.test(trimmed) || /^[A-Za-z0-9]{6,}$/.test(trimmed);
+}
+
+function matchReasonFor(matchStatus: SubmissionWork["matchStatus"]) {
+  if (matchStatus === "MATCHED") return "신청한 출품 소속명과 완전히 일치합니다.";
+  if (matchStatus === "NEEDS_REVIEW") return "띄어쓰기 또는 한 글자 차이가 있어 관리자 확인이 필요합니다.";
+  return "일치하는 신청 학교가 없습니다.";
 }
 
 function text(value: string | number | undefined) {
