@@ -67,7 +67,7 @@ export default function HomePage() {
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<SessionUser | null>(null);
-  const [authPanel, setAuthPanel] = useState<"login" | "signup" | null>(null);
+  const [authPanel, setAuthPanel] = useState<"login" | "signup">("login");
 
   useEffect(() => {
     void loadDashboard();
@@ -112,7 +112,7 @@ export default function HomePage() {
     const body = (await response.json()) as { user: SessionUser };
     setCurrentUser(body.user);
     setMode(body.user.userType === "ADMIN" ? "admin" : "teacher");
-    setAuthPanel(null);
+    setAuthPanel("login");
     setMessage(`${body.user.name} 계정으로 로그인했습니다.`);
   }
 
@@ -139,14 +139,6 @@ export default function HomePage() {
     setCurrentUser(null);
     setMode("teacher");
     setMessage("로그아웃했습니다.");
-  }
-
-  function selectMode(nextMode: ViewMode) {
-    if (currentUser?.userType === "TEACHER" && nextMode === "admin") {
-      setMessage("선생님 계정은 관리자 화면에 접근할 수 없습니다.");
-      return;
-    }
-    setMode(nextMode);
   }
 
   async function postJson(url: string, body?: unknown, doneMessage = "저장되었습니다.", method = "POST") {
@@ -278,6 +270,42 @@ export default function HomePage() {
   const navItems = mode === "teacher" ? teacherPages : adminPages;
   const activeKey = mode === "teacher" ? teacherPage : adminPage;
 
+  if (!currentUser) {
+    return (
+      <main className="login-shell">
+        <section className="login-brand">
+          <div className="brand-box login-brand-box">
+            <span>29</span>
+            <div>
+              <strong>29 WITH</strong>
+              <small>영상 꿈나무 양성 프로젝트 운영 플랫폼</small>
+            </div>
+          </div>
+          <h1>꿈프 신청과 운영을 한 곳에서 관리합니다.</h1>
+          <p>선생님은 신청, 출품 확인, 혜택과 문서를 확인하고 관리자는 행사 운영부터 선정, 엑셀 매칭, 메일 발송까지 처리합니다.</p>
+          <div className="login-highlights">
+            <span>선생님 전용 회원가입</span>
+            <span>관리자 고정 계정 로그인</span>
+            <span>출품 엑셀 자동 매칭</span>
+          </div>
+        </section>
+        <section className="login-panel-wrap">
+          {message ? <div className="toast-inline">{message}</div> : null}
+          {isLoading ? <section className="panel">로그인 상태를 확인하는 중입니다.</section> : <AuthPanel mode={authPanel} onLogin={handleLogin} onSignup={handleSignup} />}
+          {!isLoading ? (
+            <div className="auth-switch">
+              {authPanel === "login" ? (
+                <button className="ghost-button" onClick={() => setAuthPanel("signup")} type="button">선생님 회원가입</button>
+              ) : (
+                <button className="ghost-button" onClick={() => setAuthPanel("login")} type="button">이미 계정이 있어요</button>
+              )}
+            </div>
+          ) : null}
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className={`app-shell ${mode === "teacher" ? "teacher-shell" : "admin-shell"}`}>
       <aside className="side-nav">
@@ -287,10 +315,6 @@ export default function HomePage() {
             <strong>29 WITH</strong>
             <small>{mode === "teacher" ? "선생님 포털" : "운영 관리자"}</small>
           </div>
-        </div>
-        <div className="mode-switch" aria-label="화면 전환">
-          <button className={mode === "teacher" ? "active" : ""} onClick={() => selectMode("teacher")} type="button">선생님</button>
-          <button className={mode === "admin" ? "active" : ""} onClick={() => selectMode("admin")} type="button">관리자</button>
         </div>
         <nav>
           {navItems.map((item) => (
@@ -319,18 +343,12 @@ export default function HomePage() {
               <button className="ghost-button" onClick={handleLogout} type="button">
                 {currentUser.userType === "ADMIN" ? "관리자" : "선생님"} {currentUser.emailVerified ? "인증됨" : "미인증"} · 로그아웃
               </button>
-            ) : (
-              <>
-                <button className="ghost-button" onClick={() => setAuthPanel(authPanel === "signup" ? null : "signup")} type="button">회원가입</button>
-                <button className="primary-button" onClick={() => setAuthPanel(authPanel === "login" ? null : "login")} type="button">이메일 로그인</button>
-              </>
-            )}
+            ) : null}
             {mode === "admin" ? <button className="ghost-button danger-button" onClick={handleReset} type="button"><RotateCcw size={16} /> 초기화</button> : null}
           </div>
         </header>
 
         {message ? <div className="toast-inline">{message}</div> : null}
-        {!currentUser && authPanel ? <AuthPanel mode={authPanel} onLogin={handleLogin} onSignup={handleSignup} /> : null}
         {isLoading ? <section className="panel">불러오는 중입니다.</section> : null}
 
         {!isLoading && mode === "teacher" ? <TeacherPortal page={teacherPage} data={data} setPage={setTeacherPage} onApply={handleApply} currentUser={currentUser} /> : null}
