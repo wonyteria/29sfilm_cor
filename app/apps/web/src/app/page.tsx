@@ -3,13 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { Bell, CheckCircle2, FileCheck2, Gift, Home, Mail, Plus, RefreshCw, Upload } from "lucide-react";
-import type { DashboardResponse, DreamApplication, DreamEvent, EventType, ProfileChangeRequest, SubmissionWork, TeacherProfile } from "@/lib/with-types";
+import type { DashboardResponse, DreamApplication, DreamEvent, EventType, FriendsActivityLink, FriendsParticipation, ProfileChangeRequest, SubmissionWork, TeacherProfile } from "@/lib/with-types";
 import { applicationStatusLabels, eventTypeLabels, matchStatusLabels, statusLabels } from "@/lib/with-types";
 
 type ViewMode = "teacher" | "admin";
 type TeacherPage = "home" | "available" | "works" | "benefits" | "docs" | "profile";
-type AdminPage = "dashboard" | "events" | "teachers" | "applications" | "submissions" | "benefits" | "documents" | "mails" | "history";
-type SessionUser = { id: string; userType: "ADMIN" | "TEACHER"; name: string; email: string; emailVerified?: boolean };
+type FriendsPage = "friendsHome" | "friendsEvents" | "friendsActivity" | "friendsNotices" | "friendsProfile";
+type AdminPage = "dashboard" | "events" | "teachers" | "applications" | "submissions" | "benefits" | "documents" | "mails" | "history" | "friendsDashboard" | "friendsMembers" | "friendsActivity" | "friendsWarnings";
+type SessionUser = { id: string; userType: "ADMIN" | "TEACHER"; name: string; email: string; emailVerified?: boolean; programType: "DREAM_PROJECT" | "FRIENDS_2026" };
 
 const teacherPages: Array<{ key: TeacherPage; label: string }> = [
   { key: "home", label: "내 대시보드" },
@@ -18,6 +19,14 @@ const teacherPages: Array<{ key: TeacherPage; label: string }> = [
   { key: "benefits", label: "혜택/지원" },
   { key: "docs", label: "확인서/심사표" },
   { key: "profile", label: "내 프로필" }
+];
+
+const friendsPages: Array<{ key: FriendsPage; label: string }> = [
+  { key: "friendsHome", label: "내 활동" },
+  { key: "friendsEvents", label: "참여 행사" },
+  { key: "friendsActivity", label: "활동 링크" },
+  { key: "friendsNotices", label: "알림·경고" },
+  { key: "friendsProfile", label: "내 프로필" }
 ];
 
 const adminPages: Array<{ key: AdminPage; label: string }> = [
@@ -29,6 +38,15 @@ const adminPages: Array<{ key: AdminPage; label: string }> = [
   { key: "benefits", label: "혜택/지원" },
   { key: "documents", label: "활동확인서" },
   { key: "mails", label: "메일/공지" },
+  { key: "history", label: "히스토리" }
+];
+
+const friendsAdminPages: Array<{ key: AdminPage; label: string }> = [
+  { key: "friendsDashboard", label: "29프렌즈 현황" },
+  { key: "events", label: "행사 운영" },
+  { key: "friendsMembers", label: "회원 관리" },
+  { key: "friendsActivity", label: "활동 검토" },
+  { key: "friendsWarnings", label: "경고 관리" },
   { key: "history", label: "히스토리" }
 ];
 
@@ -58,6 +76,7 @@ const nextActionLabels: Partial<Record<DreamEvent["status"], string>> = {
 const emptyDashboard: DashboardResponse = {
   events: [],
   registeredTeachers: [],
+  registeredFriends: [],
   teachers: [],
   applications: [],
   submissions: [],
@@ -65,13 +84,19 @@ const emptyDashboard: DashboardResponse = {
   certificateTemplates: [],
   notices: [],
   profileChangeRequests: [],
+  friendsProfiles: [],
+  friendsParticipations: [],
+  friendsActivityLinks: [],
+  friendsWarnings: [],
   stats: {
     activeEventCount: 0,
     selectedSchoolCount: 0,
     expectedSubmissionCount: 0,
     confirmedSubmissionCount: 0,
     reviewRequiredCount: 0,
-    unusedCouponCount: 0
+    unusedCouponCount: 0,
+    activeFriendsCount: 0,
+    friendsReviewRequiredCount: 0
   }
 };
 
@@ -79,7 +104,9 @@ export default function HomePage() {
   const [data, setData] = useState<DashboardResponse>(emptyDashboard);
   const [mode, setMode] = useState<ViewMode>("teacher");
   const [teacherPage, setTeacherPage] = useState<TeacherPage>("home");
+  const [friendsPage, setFriendsPage] = useState<FriendsPage>("friendsHome");
   const [adminPage, setAdminPage] = useState<AdminPage>("dashboard");
+  const [adminProgram, setAdminProgram] = useState<"dream" | "friends">("dream");
   const [selectedEventId, setSelectedEventId] = useState("");
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -145,7 +172,12 @@ export default function HomePage() {
     const response = await fetch("/api/auth/signup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: formData.get("name"), email: formData.get("email"), password: formData.get("password") })
+      body: JSON.stringify({
+        name: formData.get("name"),
+        email: formData.get("email"),
+        password: formData.get("password"),
+        programType: formData.get("programType")
+      })
     });
     const body = await response.json();
     if (!response.ok) {
@@ -345,8 +377,24 @@ export default function HomePage() {
     await loadDashboard();
   }
 
-  const navItems = mode === "teacher" ? teacherPages : adminPages;
-  const activeKey = mode === "teacher" ? teacherPage : adminPage;
+  async function handleFriendsAction(url: string, body: unknown, doneMessage: string, method = "POST") {
+    const response = await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    if (!response.ok) {
+      setMessage(await readErrorMessage(response));
+      return false;
+    }
+    setData(await response.json());
+    setMessage(doneMessage);
+    return true;
+  }
+
+  const isFriendsMember = mode === "teacher" && currentUser?.programType === "FRIENDS_2026";
+  const navItems = mode === "teacher" ? (isFriendsMember ? friendsPages : teacherPages) : (adminProgram === "friends" ? friendsAdminPages : adminPages);
+  const activeKey = mode === "teacher" ? (isFriendsMember ? friendsPage : teacherPage) : adminPage;
 
   if (!currentUser) {
     return (
@@ -356,16 +404,16 @@ export default function HomePage() {
             <img alt="29초영화제 심볼" className="brand-symbol" src="/brand/29film-symbol.jpg" />
             <div>
               <img alt="29초영화제" className="login-main-logo" src="/brand/29film-logo-black.png" />
-              <small>영상 꿈나무 양성 프로젝트</small>
+          <small>꿈프 · 2026 29프렌즈</small>
             </div>
           </div>
           <img alt="한국경제신문" className="login-sub-logo" src="/brand/hankyung-logo-color.png" />
-          <h1>영상을 꿈꾸는 학생들 곁의 선생님을 위한 공간입니다.</h1>
-          <p>꿈나무 양성 프로젝트는 학생들이 직접 만들고 출품하는 과정을 학교 현장에서 이끌어 주시는 선생님을 지원하기 위해 운영됩니다.</p>
+          <h1>영상을 만드는 사람과 응원하는 사람이 함께하는 공간입니다.</h1>
+          <p>학교 현장의 영상 창작 활동부터 29프렌즈의 출품과 홍보 활동까지, 참여 프로그램에 필요한 일을 한곳에서 관리합니다.</p>
           <div className="login-highlights">
-            <span>꿈프 신청</span>
-            <span>출품 현황 확인</span>
-            <span>활동확인서와 지원 안내</span>
+            <span>꿈프 운영</span>
+            <span>29프렌즈 활동</span>
+            <span>출품·홍보 현황</span>
           </div>
         </section>
         <section className="login-panel-wrap">
@@ -374,7 +422,7 @@ export default function HomePage() {
           {!isLoading ? (
             <div className="auth-switch">
               {authPanel === "login" ? (
-                <button className="ghost-button" onClick={() => setAuthPanel("signup")} type="button">선생님 회원가입</button>
+                <button className="ghost-button" onClick={() => setAuthPanel("signup")} type="button">회원가입</button>
               ) : (
                 <button className="ghost-button" onClick={() => setAuthPanel("login")} type="button">이미 계정이 있어요</button>
               )}
@@ -392,12 +440,16 @@ export default function HomePage() {
           <img alt="29초영화제 심볼" className="brand-symbol" src="/brand/29film-symbol.jpg" />
           <div>
             <img alt="29초영화제" className="side-logo" src="/brand/29film-logo-white.png" />
-            <small>{mode === "teacher" ? "선생님 포털" : "운영 관리자"}</small>
+            <small>{mode === "teacher" ? (isFriendsMember ? "29프렌즈 포털" : "선생님 포털") : "운영 관리자"}</small>
           </div>
         </div>
         <nav>
           {navItems.map((item) => (
-            <button className={activeKey === item.key ? "active" : ""} key={item.key} onClick={() => (mode === "teacher" ? setTeacherPage(item.key as TeacherPage) : setAdminPage(item.key as AdminPage))} type="button">
+            <button className={activeKey === item.key ? "active" : ""} key={item.key} onClick={() => {
+              if (mode === "admin") setAdminPage(item.key as AdminPage);
+              else if (isFriendsMember) setFriendsPage(item.key as FriendsPage);
+              else setTeacherPage(item.key as TeacherPage);
+            }} type="button">
               {item.label}
             </button>
           ))}
@@ -407,12 +459,18 @@ export default function HomePage() {
       <section className="content-area">
         <header className="top-bar">
           <div>
-            <p>{mode === "teacher" ? "영상 꿈나무 양성 프로젝트" : "29 Platform 대외협력 관리 시스템"}</p>
-            <h1>{mode === "teacher" ? "선생님 포털" : "꿈프 운영"}</h1>
+            <p>{mode === "teacher" ? (isFriendsMember ? "2026 29프렌즈" : "영상 꿈나무 양성 프로젝트") : "29 Platform 대외협력 관리 시스템"}</p>
+            <h1>{mode === "teacher" ? (isFriendsMember ? "29프렌즈 활동" : "선생님 포털") : (adminProgram === "friends" ? "29프렌즈 운영" : "꿈프 운영")}</h1>
           </div>
           <div className="top-actions">
             {mode === "teacher" ? <BrandPortalLinks compact /> : null}
             {mode === "admin" ? (
+              <div className="program-switch" aria-label="관리 프로그램 선택">
+                <button className={adminProgram === "dream" ? "active" : ""} onClick={() => { setAdminProgram("dream"); setAdminPage("dashboard"); }} type="button">꿈프</button>
+                <button className={adminProgram === "friends" ? "active" : ""} onClick={() => { setAdminProgram("friends"); setAdminPage("friendsDashboard"); }} type="button">29프렌즈</button>
+              </div>
+            ) : null}
+            {mode === "admin" && adminProgram === "dream" ? (
               <select value={selectedEventId} onChange={(event) => setSelectedEventId(event.target.value)}>
                 {data.events.length === 0 ? <option>등록된 꿈프 없음</option> : null}
                 {data.events.map((event) => <option key={event.id} value={event.id}>{event.title}</option>)}
@@ -430,7 +488,7 @@ export default function HomePage() {
         {message ? <div className="toast-inline">{message}</div> : null}
         {isLoading ? <section className="panel">불러오는 중입니다.</section> : null}
 
-        {!isLoading && mode === "teacher" ? (
+        {!isLoading && mode === "teacher" && !isFriendsMember ? (
           <TeacherPortal
             page={teacherPage}
             data={data}
@@ -447,6 +505,15 @@ export default function HomePage() {
             }}
           />
         ) : null}
+        {!isLoading && mode === "teacher" && isFriendsMember ? (
+          <FriendsPortal
+            page={friendsPage}
+            data={data}
+            currentUser={currentUser}
+            setPage={setFriendsPage}
+            onAction={handleFriendsAction}
+          />
+        ) : null}
         {!isLoading && mode === "admin" && adminPage === "dashboard" ? <AdminDashboard data={data} selectedEvent={selectedEvent} setPage={setAdminPage} onSelectEvent={setSelectedEventId} onEventStatus={handleEventStatus} /> : null}
         {!isLoading && mode === "admin" && adminPage === "events" ? <EventsPage data={data} selectedEvent={selectedEvent} onCreateEvent={handleCreateEvent} onSelectEvent={setSelectedEventId} onEventStatus={handleEventStatus} /> : null}
         {!isLoading && mode === "admin" && adminPage === "teachers" ? <TeachersDbPage data={data} selectedEvent={selectedEvent} onProfileChangeReview={handleProfileChangeReview} /> : null}
@@ -456,14 +523,18 @@ export default function HomePage() {
         {!isLoading && mode === "admin" && adminPage === "documents" ? <DocumentsPage data={data} selectedEvent={selectedEvent} /> : null}
         {!isLoading && mode === "admin" && adminPage === "mails" ? <MailsPage data={data} selectedEvent={selectedEvent} onSubmit={handleMailSubmit} /> : null}
         {!isLoading && mode === "admin" && adminPage === "history" ? <HistoryPage data={data} /> : null}
+        {!isLoading && mode === "admin" && adminPage === "friendsDashboard" ? <FriendsAdminDashboard data={data} setPage={setAdminPage} /> : null}
+        {!isLoading && mode === "admin" && adminPage === "friendsMembers" ? <FriendsMembersPage data={data} /> : null}
+        {!isLoading && mode === "admin" && adminPage === "friendsActivity" ? <FriendsActivityReviewPage data={data} onAction={handleFriendsAction} /> : null}
+        {!isLoading && mode === "admin" && adminPage === "friendsWarnings" ? <FriendsWarningsPage data={data} onAction={handleFriendsAction} /> : null}
         {!isLoading && mode === "teacher" ? (
           <footer className="teacher-footer">
             <div>
-              <strong>학생들의 다음 장면을 함께 만들어 주세요.</strong>
-              <p>영화제 정보와 실제 출품은 각 공식 사이트에서 확인할 수 있습니다.</p>
+              <strong>{isFriendsMember ? "좋은 영상을 더 많은 사람에게 알려주세요." : "학생들의 다음 장면을 함께 만들어 주세요."}</strong>
+              <p>{isFriendsMember ? "출품과 홍보 활동은 행사별로 나누어 기록됩니다." : "영화제 정보와 실제 출품은 각 공식 사이트에서 확인할 수 있습니다."}</p>
             </div>
             <BrandPortalLinks />
-            <small>29 WITH · 영상 꿈나무 양성 프로젝트</small>
+            <small>29 WITH · {isFriendsMember ? "2026 29프렌즈" : "영상 꿈나무 양성 프로젝트"}</small>
           </footer>
         ) : null}
       </section>
@@ -572,7 +643,7 @@ function TeacherPortal({
 }
 
 function AuthPanel({ mode, onLogin, onSignup }: { mode: "login" | "signup"; onLogin: (event: FormEvent<HTMLFormElement>) => void; onSignup: (event: FormEvent<HTMLFormElement>) => void }) {
-  const authText = mode === "login" ? "가입한 이메일과 비밀번호로 로그인합니다." : "선생님 전용 가입입니다. 업무용 이메일로 가입하고 인증 메일을 확인하세요.";
+  const authText = mode === "login" ? "가입한 이메일과 비밀번호로 로그인합니다." : "참여 프로그램을 선택하고 자주 확인하는 이메일로 가입해 주세요.";
   return (
     <section className="panel auth-panel">
       <SectionHead title={mode === "login" ? "이메일 로그인" : "회원가입"} />
@@ -585,8 +656,14 @@ function AuthPanel({ mode, onLogin, onSignup }: { mode: "login" | "signup"; onLo
         </form>
       ) : (
         <form className="form-grid" onSubmit={onSignup}>
+          <label className="wide">가입 유형
+            <select name="programType" required defaultValue="DREAM_PROJECT">
+              <option value="DREAM_PROJECT">꿈나무양성프로젝트 (학교 선생님)</option>
+              <option value="FRIENDS_2026">2026 29프렌즈 (서포터즈)</option>
+            </select>
+          </label>
           <label>이름<input name="name" required placeholder="홍길동" /></label>
-          <label>이메일<input name="email" required type="email" placeholder="teacher@example.com" /></label>
+          <label>이메일<input name="email" required type="email" placeholder="name@example.com" /></label>
           <label>비밀번호<input name="password" minLength={6} required type="password" /></label>
           <div className="form-actions"><button className="primary-button" type="submit">가입하고 인증 메일 받기</button></div>
         </form>
@@ -1392,6 +1469,337 @@ function EventSummaryCard({ event, applications, works, selected, onSelect }: { 
 
 function ActionCard({ icon, title, text, onClick }: { icon: ReactNode; title: string; text: string; onClick: () => void }) {
   return <button className="action-card" onClick={onClick} type="button"><span className="action-icon">{icon}</span><span><strong>{title}</strong><p>{text}</p></span></button>;
+}
+
+function FriendsPortal({
+  page,
+  data,
+  currentUser,
+  setPage,
+  onAction
+}: {
+  page: FriendsPage;
+  data: DashboardResponse;
+  currentUser: SessionUser;
+  setPage: (page: FriendsPage) => void;
+  onAction: (url: string, body: unknown, message: string, method?: string) => Promise<boolean>;
+}) {
+  const profile = data.friendsProfiles[0];
+  const activeWarnings = data.friendsWarnings.filter((warning) => warning.status === "ACTIVE");
+  const completeCount = data.friendsParticipations.filter((item) => item.activityStatus === "COMPLETE").length;
+
+  if (page === "friendsProfile") {
+    return (
+      <section className="panel teacher-panel">
+        <SectionHead title="내 프로필" text="29프렌즈 활동 확인과 연락에 필요한 정보만 입력합니다." />
+        <form className="form-grid friends-profile-form" onSubmit={async (event) => {
+          event.preventDefault();
+          const values = new FormData(event.currentTarget);
+          await onAction("/api/friends/profile", {
+            phone: values.get("phone"),
+            socialChannel: values.get("socialChannel"),
+            socialUrl: values.get("socialUrl"),
+            introduction: values.get("introduction")
+          }, "29프렌즈 프로필을 저장했습니다.");
+        }}>
+          <label>이름<input value={currentUser.name} readOnly /></label>
+          <label>이메일<input value={currentUser.email} readOnly /></label>
+          <label>연락처<input name="phone" required defaultValue={profile?.phone} placeholder="010-0000-0000" /></label>
+          <label>주요 채널
+            <select name="socialChannel" defaultValue={profile?.socialChannel || "INSTAGRAM"}>
+              <option value="INSTAGRAM">Instagram</option>
+              <option value="YOUTUBE">YouTube</option>
+              <option value="TIKTOK">TikTok</option>
+              <option value="BLOG">블로그</option>
+              <option value="OTHER">기타</option>
+            </select>
+          </label>
+          <label className="wide">대표 채널 URL<input name="socialUrl" type="url" required defaultValue={profile?.socialUrl} placeholder="https://..." /></label>
+          <label className="wide">소개<textarea name="introduction" rows={3} defaultValue={profile?.introduction} placeholder="운영 중인 채널과 관심 분야를 간단히 적어주세요." /></label>
+          <div className="form-actions"><button className="primary-button" type="submit">프로필 저장</button></div>
+        </form>
+      </section>
+    );
+  }
+
+  if (page === "friendsEvents") {
+    const joinedIds = new Set(data.friendsParticipations.map((item) => item.eventId));
+    return (
+      <section className="panel teacher-panel">
+        <SectionHead title="참여 행사" text="29프렌즈로 활동할 행사를 선택합니다. 행사마다 출품 링크와 홍보 링크를 각각 1개 이상 제출해야 합니다." />
+        <div className="teacher-event-grid">
+          {data.events.map((eventItem) => (
+            <article className="teacher-event-card" key={eventItem.id}>
+              {eventItem.posterUrl ? <img alt={`${eventItem.title} 포스터`} src={eventItem.posterUrl} /> : <div className="poster-placeholder">29</div>}
+              <div>
+                <span className="status-pill success">{eventTypeLabels[eventItem.eventType]}</span>
+                <h3>{eventItem.title}</h3>
+                <p>{eventItem.contestPeriod || "기간 미정"}</p>
+                <div className="button-row">
+                  {eventItem.submissionUrl ? <a className="ghost-button" href={eventItem.submissionUrl} target="_blank" rel="noreferrer">행사 사이트</a> : null}
+                  <button
+                    className="primary-button"
+                    disabled={joinedIds.has(eventItem.id)}
+                    onClick={() => profile ? void onAction("/api/friends/participations", { eventId: eventItem.id }, "29프렌즈 활동 행사에 추가했습니다.") : setPage("friendsProfile")}
+                    type="button"
+                  >
+                    {joinedIds.has(eventItem.id) ? "참여 중" : profile ? "활동 시작" : "프로필 작성 후 참여"}
+                  </button>
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+        {!data.events.length ? <EmptyState title="현재 참여 가능한 행사가 없습니다." text="새 행사가 열리면 이곳에 표시됩니다." /> : null}
+      </section>
+    );
+  }
+
+  if (page === "friendsActivity") {
+    return (
+      <section className="panel teacher-panel">
+        <SectionHead title="활동 링크 제출" text="각 행사에 출품 링크와 홍보 링크를 최소 1개씩 제출합니다. 최대 개수 제한은 없습니다." />
+        {data.friendsParticipations.map((participation) => (
+          <FriendsActivityEditor key={participation.id} participation={participation} eventItem={data.events.find((item) => item.id === participation.eventId)} links={data.friendsActivityLinks.filter((link) => link.participationId === participation.id)} onAction={onAction} />
+        ))}
+        {!data.friendsParticipations.length ? <EmptyState title="참여 중인 행사가 없습니다." text="참여 행사 메뉴에서 활동할 행사를 먼저 선택해 주세요." /> : null}
+      </section>
+    );
+  }
+
+  if (page === "friendsNotices") {
+    return (
+      <section className="panel teacher-panel">
+        <SectionHead title="알림·경고" text="관리자의 확인 요청과 활동 경고를 확인합니다." />
+        <div className="compact-list">
+          {data.friendsWarnings.map((warning) => (
+            <div className="compact-row" key={warning.id}>
+              <div><strong>{warning.reason}</strong><small>{warning.message}</small></div>
+              <span className={`status-pill ${warning.status === "ACTIVE" ? "danger" : "success"}`}>{warning.status === "ACTIVE" ? "확인 필요" : "해결됨"}</span>
+            </div>
+          ))}
+          {data.friendsActivityLinks.filter((link) => link.status === "NEEDS_REVISION").map((link) => (
+            <div className="compact-row" key={link.id}>
+              <div><strong>활동 링크 수정 요청</strong><small>{link.adminMemo || link.url}</small></div>
+              <button className="ghost-button" onClick={() => setPage("friendsActivity")} type="button">수정하기</button>
+            </div>
+          ))}
+        </div>
+        {!data.friendsWarnings.length && !data.friendsActivityLinks.some((link) => link.status === "NEEDS_REVISION") ? <EmptyState title="새로운 알림이 없습니다." text="활동 검토 결과와 경고가 이곳에 표시됩니다." /> : null}
+      </section>
+    );
+  }
+
+  return (
+    <>
+      <section className="teacher-hero friends-hero">
+        <div>
+          <span className="eyebrow">2026 29프렌즈</span>
+          <h2>{currentUser.name}님의 활동 현황</h2>
+          <p>행사별 출품과 홍보 활동을 제출하고 검토 상태를 한눈에 확인하세요.</p>
+        </div>
+        <button className="primary-button" onClick={() => setPage("friendsActivity")} type="button">활동 링크 제출</button>
+      </section>
+      <section className="teacher-status-grid">
+        <TeacherStatusCard icon={<Home size={19} />} label="참여 행사" value={`${data.friendsParticipations.length}개`} text="현재 연결된 영화제" />
+        <TeacherStatusCard icon={<CheckCircle2 size={19} />} label="요건 완료" value={`${completeCount}개`} text="출품·홍보 링크 각 1개 이상" />
+        <TeacherStatusCard icon={<Upload size={19} />} label="제출 링크" value={`${data.friendsActivityLinks.length}개`} text="개수 제한 없이 추가 가능" />
+        <TeacherStatusCard icon={<Bell size={19} />} label="확인 필요" value={`${activeWarnings.length + data.friendsActivityLinks.filter((link) => link.status === "NEEDS_REVISION").length}건`} text="경고 또는 수정 요청" />
+      </section>
+      <section className="panel teacher-panel">
+        <SectionHead title="행사별 활동" text="두 종류의 링크가 모두 제출되어야 활동 완료로 표시됩니다." />
+        <div className="friends-progress-list">
+          {data.friendsParticipations.map((participation) => {
+            const eventItem = data.events.find((item) => item.id === participation.eventId);
+            return (
+              <article className="friends-progress-row" key={participation.id}>
+                <div><strong>{eventItem?.title || "종료된 행사"}</strong><small>{eventItem ? eventTypeLabels[eventItem.eventType] : ""}</small></div>
+                <div className={participation.submissionCount ? "requirement complete" : "requirement"}>출품 링크 {participation.submissionCount}개</div>
+                <div className={participation.promotionCount ? "requirement complete" : "requirement"}>홍보 링크 {participation.promotionCount}개</div>
+                <span className={`status-pill ${participation.activityStatus === "COMPLETE" ? "success" : participation.activityStatus === "WARNING" ? "danger" : ""}`}>
+                  {participation.activityStatus === "COMPLETE" ? "완료" : participation.activityStatus === "WARNING" ? "경고" : "진행 중"}
+                </span>
+              </article>
+            );
+          })}
+        </div>
+        {!data.friendsParticipations.length ? <EmptyState title="아직 시작한 활동이 없습니다." text="참여 행사에서 활동할 영화제를 선택해 주세요." /> : null}
+      </section>
+    </>
+  );
+}
+
+function FriendsActivityEditor({ participation, eventItem, links, onAction }: {
+  participation: FriendsParticipation;
+  eventItem?: DreamEvent;
+  links: FriendsActivityLink[];
+  onAction: (url: string, body: unknown, message: string, method?: string) => Promise<boolean>;
+}) {
+  return (
+    <article className="friends-activity-group">
+      <div className="section-head">
+        <div><h3>{eventItem?.title || "종료된 행사"}</h3><p>출품 {participation.submissionCount}개 · 홍보 {participation.promotionCount}개</p></div>
+      </div>
+      <div className="friends-submit-grid">
+        {(["SUBMISSION", "PROMOTION"] as const).map((activityType) => (
+          <form className="sub-panel" key={activityType} onSubmit={async (event) => {
+            event.preventDefault();
+            const values = new FormData(event.currentTarget);
+            if (await onAction("/api/friends/activities", {
+              participationId: participation.id,
+              activityType,
+              title: values.get("title"),
+              url: values.get("url"),
+              memo: values.get("memo")
+            }, activityType === "SUBMISSION" ? "출품 링크를 제출했습니다." : "홍보 링크를 제출했습니다.")) event.currentTarget.reset();
+          }}>
+            <strong>{activityType === "SUBMISSION" ? "출품 링크 추가" : "홍보 링크 추가"}</strong>
+            <label>제목<input name="title" required placeholder={activityType === "SUBMISSION" ? "출품 작품명" : "홍보 게시물 제목"} /></label>
+            <label>URL<input name="url" type="url" required placeholder="https://..." /></label>
+            <label>메모<input name="memo" placeholder="선택 입력" /></label>
+            <button className="primary-button" type="submit"><Plus size={16} /> 추가</button>
+          </form>
+        ))}
+      </div>
+      <div className="compact-list">
+        {links.map((link) => (
+          <div className="compact-row" key={link.id}>
+            <div><strong>{link.activityType === "SUBMISSION" ? "출품" : "홍보"} · {link.title}</strong><small><a href={link.url} target="_blank" rel="noreferrer">{link.url}</a>{link.adminMemo ? ` · ${link.adminMemo}` : ""}</small></div>
+            <span className={`status-pill ${link.status === "APPROVED" ? "success" : link.status === "NEEDS_REVISION" ? "danger" : ""}`}>{link.status === "APPROVED" ? "확인 완료" : link.status === "NEEDS_REVISION" ? "수정 필요" : "검토 대기"}</span>
+          </div>
+        ))}
+      </div>
+    </article>
+  );
+}
+
+function FriendsAdminDashboard({ data, setPage }: { data: DashboardResponse; setPage: (page: AdminPage) => void }) {
+  const incomplete = data.friendsParticipations.filter((item) => item.activityStatus !== "COMPLETE");
+  return (
+    <>
+      <section className="metric-grid">
+        <MetricCard label="활동 회원" value={`${data.stats.activeFriendsCount}명`} />
+        <MetricCard label="참여 행사 건수" value={`${data.friendsParticipations.length}건`} />
+        <MetricCard label="제출 링크" value={`${data.friendsActivityLinks.length}개`} />
+        <MetricCard label="확인 필요" value={`${data.stats.friendsReviewRequiredCount}건`} />
+      </section>
+      <section className="panel">
+        <SectionHead title="활동 확인이 필요한 회원" text="출품 또는 홍보 링크가 없거나 활성 경고가 있는 회원을 먼저 보여줍니다." />
+        <div className="friends-progress-list">
+          {incomplete.map((item) => <AdminFriendsProgressRow key={item.id} item={item} data={data} />)}
+        </div>
+        {!incomplete.length ? <EmptyState title="확인이 필요한 활동이 없습니다." text="현재 참여자들이 필수 활동 요건을 충족했습니다." /> : null}
+        <div className="form-actions">
+          <button className="ghost-button" onClick={() => setPage("friendsMembers")} type="button">회원 보기</button>
+          <button className="primary-button" onClick={() => setPage("friendsActivity")} type="button">활동 검토</button>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function FriendsMembersPage({ data }: { data: DashboardResponse }) {
+  return (
+    <section className="panel">
+      <SectionHead title="2026 29프렌즈 회원" text="가입 정보, 채널, 참여 행사와 경고 상태를 확인합니다." />
+      <div className="table-wrap">
+        <table><thead><tr><th>이름</th><th>이메일</th><th>연락처</th><th>주요 채널</th><th>참여 행사</th><th>활동 완료</th><th>경고</th></tr></thead>
+          <tbody>{data.registeredFriends.map((member) => {
+            const profile = data.friendsProfiles.find((item) => item.userId === member.id);
+            const participations = data.friendsParticipations.filter((item) => item.userId === member.id);
+            const ids = new Set(participations.map((item) => item.id));
+            const warnings = data.friendsWarnings.filter((warning) => ids.has(warning.participationId) && warning.status === "ACTIVE").length;
+            return <tr key={member.id}><td>{member.name}</td><td>{member.email}</td><td>{profile?.phone || "-"}</td><td>{profile?.socialUrl ? <a href={profile.socialUrl} target="_blank" rel="noreferrer">{profile.socialChannel || "채널"}</a> : "프로필 미작성"}</td><td>{participations.length}개</td><td>{participations.filter((item) => item.activityStatus === "COMPLETE").length}개</td><td>{warnings ? `${warnings}건` : "-"}</td></tr>;
+          })}</tbody>
+        </table>
+      </div>
+      {!data.registeredFriends.length ? <EmptyState title="가입한 29프렌즈가 없습니다." text="29프렌즈 유형으로 회원가입하면 이곳에 표시됩니다." /> : null}
+    </section>
+  );
+}
+
+function FriendsActivityReviewPage({ data, onAction }: {
+  data: DashboardResponse;
+  onAction: (url: string, body: unknown, message: string, method?: string) => Promise<boolean>;
+}) {
+  return (
+    <section className="panel">
+      <SectionHead title="29프렌즈 활동 검토" text="행사별 필수 활동 충족 여부와 제출 링크를 확인합니다." />
+      <div className="friends-review-list">
+        {data.friendsParticipations.map((participation) => {
+          const links = data.friendsActivityLinks.filter((link) => link.participationId === participation.id);
+          return (
+            <article className="friends-review-group" key={participation.id}>
+              <AdminFriendsProgressRow item={participation} data={data} />
+              <div className="compact-list">
+                {links.map((link) => (
+                  <div className="compact-row" key={link.id}>
+                    <div><strong>{link.activityType === "SUBMISSION" ? "출품" : "홍보"} · {link.title}</strong><small><a href={link.url} target="_blank" rel="noreferrer">{link.url}</a></small></div>
+                    <div className="button-row">
+                      <button className="ghost-button" onClick={() => void onAction("/api/friends/activities", { linkId: link.id, status: "NEEDS_REVISION", adminMemo: window.prompt("수정이 필요한 내용을 입력하세요.") || "" }, "수정 요청을 등록했습니다.", "PATCH")} type="button">수정 요청</button>
+                      <button className="primary-button" onClick={() => void onAction("/api/friends/activities", { linkId: link.id, status: "APPROVED", adminMemo: "" }, "활동 링크를 확인 완료했습니다.", "PATCH")} type="button">확인 완료</button>
+                    </div>
+                  </div>
+                ))}
+                {!links.length ? <p className="muted-text">제출된 링크가 없습니다.</p> : null}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function FriendsWarningsPage({ data, onAction }: {
+  data: DashboardResponse;
+  onAction: (url: string, body: unknown, message: string, method?: string) => Promise<boolean>;
+}) {
+  return (
+    <section className="panel">
+      <SectionHead title="경고 관리" text="미이행 또는 부적절한 활동에 경고를 남기고 해결 여부를 관리합니다." />
+      <div className="friends-warning-list">
+        {data.friendsParticipations.map((participation) => {
+          const warnings = data.friendsWarnings.filter((warning) => warning.participationId === participation.id);
+          const eventItem = data.events.find((item) => item.id === participation.eventId);
+          return (
+            <article className="friends-warning-row" key={participation.id}>
+              <div><strong>{participation.memberName}</strong><small>{eventItem?.title || "종료된 행사"} · {participation.email}</small></div>
+              <form onSubmit={async (event) => {
+                event.preventDefault();
+                const values = new FormData(event.currentTarget);
+                if (await onAction("/api/friends/warnings", { participationId: participation.id, reason: values.get("reason"), message: values.get("message") }, "회원에게 경고를 등록했습니다.")) event.currentTarget.reset();
+              }}>
+                <input name="reason" required placeholder="경고 사유" />
+                <input name="message" required placeholder="회원에게 보여줄 안내 내용" />
+                <button className="danger-button" type="submit">경고 등록</button>
+              </form>
+              {warnings.map((warning) => (
+                <div className="warning-history" key={warning.id}>
+                  <span className={`status-pill ${warning.status === "ACTIVE" ? "danger" : "success"}`}>{warning.status === "ACTIVE" ? "활성" : "해결"}</span>
+                  <div><strong>{warning.reason}</strong><small>{warning.message}</small></div>
+                  {warning.status === "ACTIVE" ? <button className="ghost-button" onClick={() => void onAction("/api/friends/warnings", { warningId: warning.id }, "경고를 해결 처리했습니다.", "PATCH")} type="button">해결 처리</button> : null}
+                </div>
+              ))}
+            </article>
+          );
+        })}
+      </div>
+      {!data.friendsParticipations.length ? <EmptyState title="관리할 29프렌즈 활동이 없습니다." text="회원이 행사 활동을 시작하면 경고 관리가 활성화됩니다." /> : null}
+    </section>
+  );
+}
+
+function AdminFriendsProgressRow({ item, data }: { item: FriendsParticipation; data: DashboardResponse }) {
+  const eventItem = data.events.find((event) => event.id === item.eventId);
+  return (
+    <div className="friends-progress-row">
+      <div><strong>{item.memberName}</strong><small>{eventItem?.title || "종료된 행사"} · {item.email}</small></div>
+      <div className={item.submissionCount ? "requirement complete" : "requirement"}>출품 {item.submissionCount}개</div>
+      <div className={item.promotionCount ? "requirement complete" : "requirement"}>홍보 {item.promotionCount}개</div>
+      <span className={`status-pill ${item.activityStatus === "COMPLETE" ? "success" : item.activityStatus === "WARNING" ? "danger" : ""}`}>{item.activityStatus === "COMPLETE" ? "충족" : item.activityStatus === "WARNING" ? "경고" : "미충족"}</span>
+    </div>
+  );
 }
 
 function TeacherStatusCard({ icon, label, value, text }: { icon: ReactNode; label: string; value: string; text: string }) {

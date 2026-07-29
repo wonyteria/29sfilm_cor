@@ -49,6 +49,53 @@ export type RegisteredTeacher = {
   status: string;
   createdAt: string;
   profileId?: string;
+  programType?: "DREAM_PROJECT" | "FRIENDS_2026";
+};
+
+export type FriendsProfile = {
+  id: string;
+  userId: string;
+  name: string;
+  email: string;
+  phone: string;
+  socialChannel: string;
+  socialUrl: string;
+  introduction: string;
+  status: "ACTIVE" | "INACTIVE";
+};
+
+export type FriendsActivityLink = {
+  id: string;
+  participationId: string;
+  activityType: "SUBMISSION" | "PROMOTION";
+  title: string;
+  url: string;
+  memo: string;
+  status: "SUBMITTED" | "APPROVED" | "NEEDS_REVISION";
+  adminMemo: string;
+  submittedAt: string;
+};
+
+export type FriendsWarning = {
+  id: string;
+  participationId: string;
+  reason: string;
+  message: string;
+  status: "ACTIVE" | "RESOLVED";
+  issuedAt: string;
+};
+
+export type FriendsParticipation = {
+  id: string;
+  userId: string;
+  eventId: string;
+  memberName: string;
+  email: string;
+  status: "ACTIVE" | "COMPLETED" | "INACTIVE";
+  submissionCount: number;
+  promotionCount: number;
+  activityStatus: "COMPLETE" | "INCOMPLETE" | "WARNING";
+  joinedAt: string;
 };
 
 export type ProfileChangeRequest = {
@@ -124,6 +171,7 @@ export type AdminNotice = {
 export type AppState = {
   events: DreamEvent[];
   registeredTeachers: RegisteredTeacher[];
+  registeredFriends: RegisteredTeacher[];
   teachers: TeacherProfile[];
   applications: DreamApplication[];
   submissions: SubmissionWork[];
@@ -131,6 +179,10 @@ export type AppState = {
   certificateTemplates: CertificateTemplate[];
   notices: AdminNotice[];
   profileChangeRequests: ProfileChangeRequest[];
+  friendsProfiles: FriendsProfile[];
+  friendsParticipations: FriendsParticipation[];
+  friendsActivityLinks: FriendsActivityLink[];
+  friendsWarnings: FriendsWarning[];
 };
 
 export type DashboardResponse = AppState & {
@@ -141,6 +193,8 @@ export type DashboardResponse = AppState & {
     confirmedSubmissionCount: number;
     reviewRequiredCount: number;
     unusedCouponCount: number;
+    activeFriendsCount: number;
+    friendsReviewRequiredCount: number;
   };
 };
 

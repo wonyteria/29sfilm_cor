@@ -9,6 +9,10 @@ import type {
   DreamApplication,
   DreamEvent,
   EventStatus,
+  FriendsActivityLink,
+  FriendsParticipation,
+  FriendsProfile,
+  FriendsWarning,
   ProfileChangeRequest,
   SubmissionWork,
   TeacherProfile
@@ -27,8 +31,13 @@ type ApplicationForMatch = {
 export async function readDbState(): Promise<AppState> {
   const events = await prisma.dreamEvent.findMany({ include: { event: true }, orderBy: { createdAt: "desc" } });
   const registeredTeachers = await prisma.user.findMany({
-    where: { userType: "TEACHER" },
+    where: { userType: "TEACHER", programType: "DREAM_PROJECT" },
     include: { teacherProfile: true },
+    orderBy: { createdAt: "desc" }
+  });
+  const registeredFriends = await prisma.user.findMany({
+    where: { userType: "TEACHER", programType: "FRIENDS_2026" },
+    include: { friendsProfile: true },
     orderBy: { createdAt: "desc" }
   });
   const teachers = await prisma.teacherProfile.findMany({ include: { user: true }, orderBy: { createdAt: "desc" } });
@@ -58,6 +67,18 @@ export async function readDbState(): Promise<AppState> {
     orderBy: { createdAt: "desc" }
   });
   const teacherById = new Map(teachers.map((teacher) => [teacher.id, teacher]));
+  const friendsProfiles = await prisma.friendsProfile.findMany({ orderBy: { createdAt: "desc" } });
+  const friendsParticipations = await prisma.friendsParticipation.findMany({
+    include: {
+      user: true,
+      dreamEvent: { include: { event: true } },
+      links: true,
+      warnings: true
+    },
+    orderBy: { joinedAt: "desc" }
+  });
+  const friendsActivityLinks = friendsParticipations.flatMap((participation) => participation.links);
+  const friendsWarnings = friendsParticipations.flatMap((participation) => participation.warnings);
 
   return {
     events: events.map((item) => ({
@@ -82,6 +103,17 @@ export async function readDbState(): Promise<AppState> {
       status: item.status,
       createdAt: item.createdAt.toISOString(),
       profileId: item.teacherProfile?.id
+      ,
+      programType: "DREAM_PROJECT"
+    })),
+    registeredFriends: registeredFriends.map((item) => ({
+      id: item.id,
+      name: item.name,
+      email: item.email,
+      status: item.status,
+      createdAt: item.createdAt.toISOString(),
+      profileId: item.friendsProfile?.id,
+      programType: "FRIENDS_2026"
     })),
     teachers: teachers.map((item) => ({
       id: item.id,
@@ -167,12 +199,63 @@ export async function readDbState(): Promise<AppState> {
         adminReply: item.adminReply || "",
         createdAt: item.createdAt.toISOString()
       } satisfies ProfileChangeRequest;
-    })
+    }),
+    friendsProfiles: friendsProfiles.map((item) => ({
+      id: item.id,
+      userId: item.userId,
+      name: item.name,
+      email: item.email,
+      phone: item.phone || "",
+      socialChannel: item.socialChannel || "",
+      socialUrl: item.socialUrl || "",
+      introduction: item.introduction || "",
+      status: item.status === "INACTIVE" ? "INACTIVE" : "ACTIVE"
+    } satisfies FriendsProfile)),
+    friendsParticipations: friendsParticipations.map((item) => {
+      const submissionCount = item.links.filter((link) => link.activityType === "SUBMISSION").length;
+      const promotionCount = item.links.filter((link) => link.activityType === "PROMOTION").length;
+      const hasWarning = item.warnings.some((warning) => warning.status === "ACTIVE");
+      return {
+        id: item.id,
+        userId: item.userId,
+        eventId: item.dreamEventId,
+        memberName: item.user.name,
+        email: item.user.email,
+        status: item.status === "COMPLETED" ? "COMPLETED" : item.status === "INACTIVE" ? "INACTIVE" : "ACTIVE",
+        submissionCount,
+        promotionCount,
+        activityStatus: hasWarning ? "WARNING" : submissionCount >= 1 && promotionCount >= 1 ? "COMPLETE" : "INCOMPLETE",
+        joinedAt: item.joinedAt.toISOString()
+      } satisfies FriendsParticipation;
+    }),
+    friendsActivityLinks: friendsActivityLinks.map((item) => ({
+      id: item.id,
+      participationId: item.participationId,
+      activityType: item.activityType === "PROMOTION" ? "PROMOTION" : "SUBMISSION",
+      title: item.title || "",
+      url: item.url,
+      memo: item.memo || "",
+      status: item.status === "APPROVED" ? "APPROVED" : item.status === "NEEDS_REVISION" ? "NEEDS_REVISION" : "SUBMITTED",
+      adminMemo: item.adminMemo || "",
+      submittedAt: item.submittedAt.toISOString()
+    } satisfies FriendsActivityLink)),
+    friendsWarnings: friendsWarnings.map((item) => ({
+      id: item.id,
+      participationId: item.participationId,
+      reason: item.reason,
+      message: item.message,
+      status: item.status === "RESOLVED" ? "RESOLVED" : "ACTIVE",
+      issuedAt: item.issuedAt.toISOString()
+    } satisfies FriendsWarning))
   };
 }
 
 export async function resetDbState(): Promise<AppState> {
   await prisma.$transaction(async (tx) => {
+    await tx.friendsWarning.deleteMany();
+    await tx.friendsActivityLink.deleteMany();
+    await tx.friendsParticipation.deleteMany();
+    await tx.friendsProfile.deleteMany();
     await tx.mailSendLog.deleteMany();
     await tx.mailRecipient.deleteMany();
     await tx.scheduledMail.deleteMany();
@@ -215,8 +298,144 @@ export function buildDbDashboard(state: AppState): DashboardResponse {
       confirmedSubmissionCount: state.submissions.filter((work) => work.matchStatus === "MATCHED").length,
       reviewRequiredCount: state.submissions.filter((work) => work.matchStatus === "NEEDS_REVIEW").length,
       unusedCouponCount: state.coupons.filter((coupon) => coupon.status === "UNUSED").length
+      ,
+      activeFriendsCount: new Set(state.friendsParticipations.filter((item) => item.status === "ACTIVE").map((item) => item.userId)).size,
+      friendsReviewRequiredCount: state.friendsParticipations.filter((item) => item.activityStatus !== "COMPLETE").length
     }
   };
+}
+
+export async function saveDbFriendsProfile(input: {
+  email: string;
+  name: string;
+  phone: string;
+  socialChannel: string;
+  socialUrl: string;
+  introduction: string;
+}) {
+  const user = await prisma.user.findUnique({ where: { email: input.email } });
+  if (!user || user.programType !== "FRIENDS_2026") throw new Error("29프렌즈 계정을 찾을 수 없습니다.");
+  await prisma.friendsProfile.upsert({
+    where: { userId: user.id },
+    update: {
+      name: input.name,
+      email: input.email,
+      phone: input.phone,
+      socialChannel: input.socialChannel,
+      socialUrl: input.socialUrl,
+      introduction: input.introduction
+    },
+    create: {
+      userId: user.id,
+      name: input.name,
+      email: input.email,
+      phone: input.phone,
+      socialChannel: input.socialChannel,
+      socialUrl: input.socialUrl,
+      introduction: input.introduction
+    }
+  });
+  await prisma.user.update({ where: { id: user.id }, data: { name: input.name, phone: input.phone } });
+  await audit(prisma, "29프렌즈 프로필 저장", "User", user.id);
+  return buildDbDashboard(await readDbState());
+}
+
+export async function joinDbFriendsEvent(input: { email: string; eventId: string }) {
+  const user = await prisma.user.findUnique({ where: { email: input.email }, include: { friendsProfile: true } });
+  if (!user || user.programType !== "FRIENDS_2026") throw new Error("29프렌즈 계정으로 이용해 주세요.");
+  if (!user.friendsProfile) throw new Error("행사 참여 전에 내 프로필을 먼저 작성해 주세요.");
+  const event = await prisma.dreamEvent.findUnique({ where: { id: input.eventId } });
+  if (!event || event.operationStatus === "CLOSED") throw new Error("참여할 수 없는 행사입니다.");
+  await prisma.friendsParticipation.upsert({
+    where: { userId_dreamEventId: { userId: user.id, dreamEventId: input.eventId } },
+    update: { status: "ACTIVE" },
+    create: { userId: user.id, dreamEventId: input.eventId }
+  });
+  await audit(prisma, "29프렌즈 행사 참여", "DreamEvent", input.eventId);
+  return buildDbDashboard(await readDbState());
+}
+
+export async function addDbFriendsActivity(input: {
+  email: string;
+  participationId: string;
+  activityType: "SUBMISSION" | "PROMOTION";
+  title: string;
+  url: string;
+  memo: string;
+}) {
+  const participation = await prisma.friendsParticipation.findUnique({
+    where: { id: input.participationId },
+    include: { user: true }
+  });
+  if (!participation || participation.user.email.toLowerCase() !== input.email.toLowerCase()) {
+    throw new Error("해당 29프렌즈 활동을 찾을 수 없습니다.");
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(input.url);
+  } catch {
+    throw new Error("https://로 시작하는 올바른 링크를 입력해 주세요.");
+  }
+  if (!["http:", "https:"].includes(parsed.protocol)) throw new Error("웹에서 확인할 수 있는 링크만 제출할 수 있습니다.");
+  await prisma.$transaction(async (tx) => {
+    await tx.friendsActivityLink.create({
+      data: {
+        participationId: participation.id,
+        activityType: input.activityType,
+        title: input.title || null,
+        url: parsed.toString(),
+        memo: input.memo || null
+      }
+    });
+    await tx.friendsParticipation.update({
+      where: { id: participation.id },
+      data: { lastSubmittedAt: new Date() }
+    });
+  });
+  await audit(prisma, input.activityType === "SUBMISSION" ? "29프렌즈 출품 링크 제출" : "29프렌즈 홍보 링크 제출", "FriendsParticipation", participation.id);
+  return buildDbDashboard(await readDbState());
+}
+
+export async function reviewDbFriendsActivity(input: {
+  linkId: string;
+  status: "APPROVED" | "NEEDS_REVISION";
+  adminMemo: string;
+  handledBy: string;
+}) {
+  await prisma.friendsActivityLink.update({
+    where: { id: input.linkId },
+    data: { status: input.status, adminMemo: input.adminMemo || null, reviewedBy: input.handledBy, reviewedAt: new Date() }
+  });
+  await audit(prisma, input.status === "APPROVED" ? "29프렌즈 활동 승인" : "29프렌즈 활동 수정 요청", "FriendsActivityLink", input.linkId);
+  return buildDbDashboard(await readDbState());
+}
+
+export async function issueDbFriendsWarning(input: {
+  participationId: string;
+  reason: string;
+  message: string;
+  issuedBy: string;
+}) {
+  if (!input.reason.trim() || !input.message.trim()) throw new Error("경고 사유와 안내 내용을 모두 입력해 주세요.");
+  const warning = await prisma.friendsWarning.create({
+    data: {
+      participationId: input.participationId,
+      reason: input.reason.trim(),
+      message: input.message.trim(),
+      issuedBy: input.issuedBy
+    }
+  });
+  await audit(prisma, "29프렌즈 경고 발송", "FriendsWarning", warning.id);
+  return buildDbDashboard(await readDbState());
+}
+
+export async function resolveDbFriendsWarning(input: { warningId: string; handledBy: string }) {
+  await prisma.friendsWarning.update({
+    where: { id: input.warningId },
+    data: { status: "RESOLVED", resolvedAt: new Date() }
+  });
+  await audit(prisma, "29프렌즈 경고 해제", "FriendsWarning", input.warningId, { handledBy: input.handledBy });
+  return buildDbDashboard(await readDbState());
 }
 
 export async function addDbEvent(input: Omit<DreamEvent, "id" | "createdAt">) {

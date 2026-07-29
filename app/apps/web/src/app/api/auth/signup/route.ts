@@ -12,6 +12,7 @@ export async function POST(request: Request) {
       password: String(body.password || ""),
       name: String(body.name || "").trim(),
       userType: "TEACHER",
+      programType: body.programType === "FRIENDS_2026" ? "FRIENDS_2026" : "DREAM_PROJECT",
       redirectTo: `${origin}/api/auth/callback`
     });
     return NextResponse.json({

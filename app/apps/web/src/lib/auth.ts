@@ -14,6 +14,7 @@ export type SessionUser = {
   name: string;
   email: string;
   emailVerified?: boolean;
+  programType: "DREAM_PROJECT" | "FRIENDS_2026";
 };
 
 export async function hashPassword(password: string) {
@@ -109,7 +110,8 @@ export async function loginWithPassword(email: string, password: string) {
       userType: "ADMIN",
       name: "29 WITH 관리자",
       email: fixedAdminEmail,
-      emailVerified: true
+      emailVerified: true,
+      programType: "DREAM_PROJECT"
     } satisfies SessionUser;
   }
 
@@ -127,13 +129,21 @@ export async function loginWithPassword(email: string, password: string) {
       userType: demoRole,
       name: demoRole === "ADMIN" ? "관리자" : "선생님",
       email,
-      emailVerified: true
+      emailVerified: true,
+      programType: "DREAM_PROJECT"
     } satisfies SessionUser;
   }
 
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user || !(await verifyPassword(password, user.passwordHash))) return null;
-  return { id: user.id, userType: user.userType, name: user.name, email: user.email, emailVerified: true } satisfies SessionUser;
+  return {
+    id: user.id,
+    userType: user.userType,
+    name: user.name,
+    email: user.email,
+    emailVerified: true,
+    programType: user.programType === "FRIENDS_2026" ? "FRIENDS_2026" : "DREAM_PROJECT"
+  } satisfies SessionUser;
 }
 
 export async function signupWithPassword(input: {
@@ -141,6 +151,7 @@ export async function signupWithPassword(input: {
   password: string;
   name: string;
   userType?: "ADMIN" | "TEACHER";
+  programType?: "DREAM_PROJECT" | "FRIENDS_2026";
   redirectTo?: string;
 }) {
   if (input.email.trim().toLowerCase() === fixedAdminEmail) {
@@ -155,7 +166,8 @@ export async function signupWithPassword(input: {
       emailRedirectTo: input.redirectTo,
       data: {
         name: input.name,
-        user_type: "TEACHER"
+        user_type: "TEACHER",
+        program_type: input.programType === "FRIENDS_2026" ? "FRIENDS_2026" : "DREAM_PROJECT"
       }
     }
   });
@@ -209,21 +221,25 @@ async function syncSupabaseUser(user: {
   const email = user.email || "";
   const metadata = user.user_metadata || {};
   const requestedType = metadata.user_type === "ADMIN" ? "ADMIN" : "TEACHER";
+  const requestedProgramType = metadata.program_type === "FRIENDS_2026" ? "FRIENDS_2026" : "DREAM_PROJECT";
   const name = String(metadata.name || email.split("@")[0] || "사용자");
 
   if (isDatabaseConfigured() && email) {
     const existing = await prisma.user.findUnique({ where: { email } });
     const safeType = existing?.userType === "ADMIN" ? "ADMIN" : requestedType;
+    const safeProgramType = existing?.programType === "FRIENDS_2026" ? "FRIENDS_2026" : existing?.programType || requestedProgramType;
     await prisma.user.upsert({
       where: { email },
       update: {
         name,
         userType: safeType,
+        programType: safeProgramType,
         status: user.email_confirmed_at ? "ACTIVE" : "PENDING_EMAIL_VERIFICATION"
       },
       create: {
         id: user.id,
         userType: safeType,
+        programType: requestedProgramType,
         name,
         email,
         passwordHash: "SUPABASE_AUTH",
@@ -235,7 +251,8 @@ async function syncSupabaseUser(user: {
       userType: safeType,
       name,
       email,
-      emailVerified: Boolean(user.email_confirmed_at)
+      emailVerified: Boolean(user.email_confirmed_at),
+      programType: safeProgramType === "FRIENDS_2026" ? "FRIENDS_2026" : "DREAM_PROJECT"
     };
   }
 
@@ -244,6 +261,7 @@ async function syncSupabaseUser(user: {
     userType: requestedType,
     name,
     email,
-    emailVerified: Boolean(user.email_confirmed_at)
+    emailVerified: Boolean(user.email_confirmed_at),
+    programType: requestedProgramType
   };
 }

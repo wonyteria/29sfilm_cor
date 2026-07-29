@@ -16,19 +16,26 @@ import {
   addDbCertificateTemplate,
   addDbCoupons,
   addDbEvent,
+  addDbFriendsActivity,
   analyzeDbSubmissions,
   buildDbDashboard,
   readDbState,
+  issueDbFriendsWarning,
+  joinDbFriendsEvent,
   requestDbProfileChange,
+  resolveDbFriendsWarning,
+  reviewDbFriendsActivity,
   reviewDbProfileChange,
   resetDbState,
   saveDbTeacherProfile,
+  saveDbFriendsProfile,
   updateDbApplicationStatus
 } from "./db-store";
 
 const emptyState: AppState = {
   events: [],
   registeredTeachers: [],
+  registeredFriends: [],
   teachers: [],
   applications: [],
   submissions: [],
@@ -36,6 +43,11 @@ const emptyState: AppState = {
   certificateTemplates: [],
   notices: [],
   profileChangeRequests: []
+  ,
+  friendsProfiles: [],
+  friendsParticipations: [],
+  friendsActivityLinks: [],
+  friendsWarnings: []
 };
 
 const dataDir =
@@ -99,8 +111,65 @@ export function buildDashboard(state: AppState): DashboardResponse {
       confirmedSubmissionCount: confirmedSubmissions.length,
       reviewRequiredCount: reviewRequired.length,
       unusedCouponCount: state.coupons.filter((coupon) => coupon.status === "UNUSED").length
+      ,
+      activeFriendsCount: new Set(state.friendsParticipations.filter((item) => item.status === "ACTIVE").map((item) => item.userId)).size,
+      friendsReviewRequiredCount: state.friendsParticipations.filter((item) => item.activityStatus !== "COMPLETE").length
     }
   };
+}
+
+export async function saveFriendsProfile(input: {
+  email: string;
+  name: string;
+  phone: string;
+  socialChannel: string;
+  socialUrl: string;
+  introduction: string;
+}) {
+  if (isDatabaseConfigured()) return saveDbFriendsProfile(input);
+  throw new Error("29프렌즈 프로필은 데이터베이스 연결 환경에서 사용할 수 있습니다.");
+}
+
+export async function joinFriendsEvent(input: { email: string; eventId: string }) {
+  if (isDatabaseConfigured()) return joinDbFriendsEvent(input);
+  throw new Error("29프렌즈 행사 참여는 데이터베이스 연결 환경에서 사용할 수 있습니다.");
+}
+
+export async function addFriendsActivity(input: {
+  email: string;
+  participationId: string;
+  activityType: "SUBMISSION" | "PROMOTION";
+  title: string;
+  url: string;
+  memo: string;
+}) {
+  if (isDatabaseConfigured()) return addDbFriendsActivity(input);
+  throw new Error("29프렌즈 활동 제출은 데이터베이스 연결 환경에서 사용할 수 있습니다.");
+}
+
+export async function reviewFriendsActivity(input: {
+  linkId: string;
+  status: "APPROVED" | "NEEDS_REVISION";
+  adminMemo: string;
+  handledBy: string;
+}) {
+  if (isDatabaseConfigured()) return reviewDbFriendsActivity(input);
+  throw new Error("29프렌즈 활동 검토는 데이터베이스 연결 환경에서 사용할 수 있습니다.");
+}
+
+export async function issueFriendsWarning(input: {
+  participationId: string;
+  reason: string;
+  message: string;
+  issuedBy: string;
+}) {
+  if (isDatabaseConfigured()) return issueDbFriendsWarning(input);
+  throw new Error("29프렌즈 경고 관리는 데이터베이스 연결 환경에서 사용할 수 있습니다.");
+}
+
+export async function resolveFriendsWarning(input: { warningId: string; handledBy: string }) {
+  if (isDatabaseConfigured()) return resolveDbFriendsWarning(input);
+  throw new Error("29프렌즈 경고 관리는 데이터베이스 연결 환경에서 사용할 수 있습니다.");
 }
 
 export async function resetState() {

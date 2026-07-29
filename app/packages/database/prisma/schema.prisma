@@ -59,6 +59,7 @@ enum SubmissionSlotStatus {
 model User {
   id           String    @id @default(cuid())
   userType     UserType
+  programType  String    @default("DREAM_PROJECT")
   name         String
   email        String    @unique
   phone        String?
@@ -68,6 +69,76 @@ model User {
   updatedAt    DateTime  @updatedAt
 
   teacherProfile TeacherProfile?
+  friendsProfile FriendsProfile?
+  friendsParticipations FriendsParticipation[]
+}
+
+model FriendsProfile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  name            String
+  email           String
+  phone           String?
+  socialChannel   String?
+  socialUrl       String?
+  introduction    String?
+  status          String   @default("ACTIVE")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model FriendsParticipation {
+  id                String   @id @default(cuid())
+  userId            String
+  dreamEventId      String
+  status            String   @default("ACTIVE")
+  joinedAt          DateTime @default(now())
+  lastSubmittedAt   DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user       User                  @relation(fields: [userId], references: [id])
+  dreamEvent DreamEvent            @relation(fields: [dreamEventId], references: [id])
+  links      FriendsActivityLink[]
+  warnings   FriendsWarning[]
+
+  @@unique([userId, dreamEventId])
+}
+
+model FriendsActivityLink {
+  id              String   @id @default(cuid())
+  participationId String
+  activityType    String
+  title           String?
+  url             String
+  memo            String?
+  submittedAt     DateTime @default(now())
+  reviewedAt      DateTime?
+  reviewedBy      String?
+  status          String   @default("SUBMITTED")
+  adminMemo       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  participation FriendsParticipation @relation(fields: [participationId], references: [id])
+}
+
+model FriendsWarning {
+  id              String   @id @default(cuid())
+  participationId String
+  reason          String
+  message         String
+  status          String   @default("ACTIVE")
+  issuedBy        String?
+  issuedAt        DateTime @default(now())
+  resolvedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  participation FriendsParticipation @relation(fields: [participationId], references: [id])
 }
 
 model FileAsset {
@@ -142,6 +213,7 @@ model DreamEvent {
   externalConnections   ExternalEventConnection[]
   applications          DreamApplication[]
   participations        DreamParticipation[]
+  friendsParticipations FriendsParticipation[]
 }
 
 model ExternalEventConnection {
