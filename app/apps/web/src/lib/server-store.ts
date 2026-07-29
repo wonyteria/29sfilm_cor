@@ -19,7 +19,10 @@ import {
   analyzeDbSubmissions,
   buildDbDashboard,
   readDbState,
+  requestDbProfileChange,
+  reviewDbProfileChange,
   resetDbState,
+  saveDbTeacherProfile,
   updateDbApplicationStatus
 } from "./db-store";
 
@@ -31,7 +34,8 @@ const emptyState: AppState = {
   submissions: [],
   coupons: [],
   certificateTemplates: [],
-  notices: []
+  notices: [],
+  profileChangeRequests: []
 };
 
 const dataDir =
@@ -205,21 +209,15 @@ export async function addApplication(input: {
 }) {
   if (isDatabaseConfigured()) return addDbApplication(input);
   const state = await readState();
+  const teacher = state.teachers.find((item) => item.email.toLowerCase() === input.email.toLowerCase());
+  if (!teacher) throw new Error("행사 신청 전에 내 프로필을 먼저 작성해 주세요.");
+  if (teacher.schoolName !== input.schoolName || teacher.affiliationName !== input.affiliationName) {
+    throw new Error("저장된 프로필과 신청 정보가 다릅니다. 내 프로필을 확인해 주세요.");
+  }
   if (state.applications.some((application) => application.eventId === input.eventId && application.teacherProfileId === state.teachers.find((teacher) => teacher.email === input.email)?.id)) {
     throw new Error("이미 신청한 행사입니다. 신청 현황에서 상태를 확인해 주세요.");
   }
-  const teacher =
-    state.teachers.find((item) => item.email === input.email) ??
-    ({
-      id: id("teacher"),
-      schoolName: input.schoolName,
-      teacherName: input.teacherName,
-      email: input.email,
-      phone: input.phone || "",
-      affiliationName: input.affiliationName,
-      trustStatus: "NORMAL"
-    } satisfies TeacherProfile);
-  if (!state.teachers.some((item) => item.id === teacher.id)) state.teachers.unshift(teacher);
+  teacher.profileLocked = true;
   state.applications.unshift({
     id: id("application"),
     eventId: input.eventId,
@@ -234,6 +232,105 @@ export async function addApplication(input: {
     createdAt: now()
   });
   state.notices.unshift(makeNotice("신청 접수", `${input.schoolName} ${input.teacherName} 선생님의 신청을 접수했습니다.`));
+  await writeState(state);
+  return buildDashboard(state);
+}
+
+export async function saveTeacherProfile(input: {
+  email: string;
+  teacherName: string;
+  schoolName: string;
+  phone: string;
+  affiliationName: string;
+  verificationFileName?: string;
+  verificationDataUrl?: string;
+}) {
+  if (isDatabaseConfigured()) return saveDbTeacherProfile(input);
+  const state = await readState();
+  const existing = state.teachers.find((teacher) => teacher.email.toLowerCase() === input.email.toLowerCase());
+  if (existing?.profileLocked && (existing.schoolName !== input.schoolName || existing.affiliationName !== input.affiliationName)) {
+    throw new Error("신청 후 학교명과 출품 소속명은 직접 변경할 수 없습니다. 변경 요청을 이용해 주세요.");
+  }
+  if (existing) {
+    existing.schoolName = input.schoolName;
+    existing.teacherName = input.teacherName;
+    existing.phone = input.phone;
+    existing.affiliationName = input.affiliationName;
+    if (input.verificationFileName) existing.verificationFileName = input.verificationFileName;
+    existing.verificationStatus = existing.verificationFileName ? "PENDING" : "NOT_SUBMITTED";
+  } else {
+    state.teachers.unshift({
+      id: id("teacher"),
+      schoolName: input.schoolName,
+      teacherName: input.teacherName,
+      email: input.email,
+      phone: input.phone,
+      affiliationName: input.affiliationName,
+      verificationFileName: input.verificationFileName,
+      verificationStatus: input.verificationFileName ? "PENDING" : "NOT_SUBMITTED",
+      profileLocked: false,
+      trustStatus: "NORMAL"
+    });
+  }
+  state.notices.unshift(makeNotice("선생님 프로필", `${input.teacherName} 선생님의 프로필을 저장했습니다.`));
+  await writeState(state);
+  return buildDashboard(state);
+}
+
+export async function requestProfileChange(input: {
+  email: string;
+  requestedSchoolName: string;
+  requestedAffiliationName: string;
+  reason: string;
+  teacherConfirmed: boolean;
+}) {
+  if (isDatabaseConfigured()) return requestDbProfileChange(input);
+  const state = await readState();
+  const profile = state.teachers.find((teacher) => teacher.email.toLowerCase() === input.email.toLowerCase());
+  if (!profile) throw new Error("먼저 내 프로필을 작성해 주세요.");
+  if (!input.teacherConfirmed) throw new Error("변경 내용을 다시 확인해 주세요.");
+  if (state.profileChangeRequests.some((request) => request.teacherProfileId === profile.id && request.status === "SUBMITTED")) {
+    throw new Error("처리 대기 중인 프로필 변경 요청이 있습니다.");
+  }
+  state.profileChangeRequests.unshift({
+    id: id("profile-request"),
+    teacherProfileId: profile.id,
+    teacherName: profile.teacherName,
+    email: profile.email,
+    currentSchoolName: profile.schoolName,
+    requestedSchoolName: input.requestedSchoolName,
+    currentAffiliationName: profile.affiliationName,
+    requestedAffiliationName: input.requestedAffiliationName,
+    reason: input.reason,
+    teacherConfirmed: true,
+    status: "SUBMITTED",
+    adminReply: "",
+    createdAt: now()
+  });
+  await writeState(state);
+  return buildDashboard(state);
+}
+
+export async function reviewProfileChange(input: {
+  requestId: string;
+  status: "APPROVED" | "REJECTED";
+  adminReply?: string;
+  handledBy: string;
+}) {
+  if (isDatabaseConfigured()) return reviewDbProfileChange(input);
+  const state = await readState();
+  const request = state.profileChangeRequests.find((item) => item.id === input.requestId);
+  if (!request || request.status !== "SUBMITTED") throw new Error("처리할 변경 요청을 찾을 수 없습니다.");
+  request.status = input.status;
+  request.adminReply = input.adminReply || "";
+  if (input.status === "APPROVED") {
+    const profile = state.teachers.find((teacher) => teacher.id === request.teacherProfileId);
+    if (profile) {
+      profile.schoolName = request.requestedSchoolName;
+      profile.affiliationName = request.requestedAffiliationName;
+      profile.profileLocked = true;
+    }
+  }
   await writeState(state);
   return buildDashboard(state);
 }

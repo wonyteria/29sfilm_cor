@@ -746,6 +746,127 @@ textarea {
   margin-top: 2px;
 }
 
+.saved-profile-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  border: 1px solid #dce4ef;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.saved-profile-summary span,
+.saved-profile-summary strong {
+  display: block;
+}
+
+.saved-profile-summary span {
+  margin-bottom: 5px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.saved-profile-summary strong {
+  overflow-wrap: anywhere;
+  color: #172033;
+}
+
+.affiliation-warning {
+  border: 1px solid #f3d08a;
+  border-radius: 8px;
+  background: #fffbeb;
+  padding: 13px 14px;
+  color: #78350f;
+}
+
+.affiliation-warning p {
+  margin: 6px 0 0;
+  line-height: 1.55;
+}
+
+.profile-form input[readonly],
+.modal-panel input[readonly] {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.profile-form label small {
+  color: #64748b;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.profile-actions {
+  margin-top: 16px;
+  justify-content: flex-end;
+}
+
+.request-result {
+  margin-top: 14px;
+  border-left: 3px solid #3155d4;
+  background: #f4f7ff;
+  padding: 12px 14px;
+}
+
+.request-result p {
+  margin: 5px 0 0;
+  color: #64748b;
+}
+
+.modal-backdrop {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow-y: auto;
+  background: rgb(15 23 42 / 58%);
+  padding: 24px;
+}
+
+.modal-panel {
+  width: min(760px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  border-radius: 8px;
+  background: white;
+  padding: 22px;
+  box-shadow: 0 24px 70px rgb(15 23 42 / 28%);
+}
+
+.profile-request-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.profile-request-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.7fr);
+  align-items: center;
+  gap: 18px;
+  border: 1px solid #dce4ef;
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.profile-request-row p,
+.profile-request-row small {
+  display: block;
+  margin: 5px 0 0;
+  color: #64748b;
+}
+
+.request-review {
+  display: grid;
+  gap: 8px;
+}
+
+.request-review .button-row {
+  justify-content: flex-end;
+}
+
 .form-actions {
   display: flex;
   justify-content: flex-end;
@@ -1138,12 +1259,40 @@ button:disabled {
   }
 
   .app-shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .side-nav {
     position: static;
+    min-width: 0;
+    max-width: 100vw;
+    height: auto;
+    overflow: hidden;
     padding: 18px;
+  }
+
+  .side-nav .brand-box {
+    margin-bottom: 14px;
+  }
+
+  .side-nav nav {
+    display: flex;
+    width: 100%;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+  }
+
+  .side-nav nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .side-nav nav button {
+    width: auto;
+    flex: 0 0 auto;
+    padding: 9px 11px;
+    white-space: nowrap;
   }
 
   .content-area {
@@ -1161,6 +1310,15 @@ button:disabled {
     display: grid;
   }
 
+  .top-actions {
+    width: 100%;
+  }
+
+  .top-actions select {
+    min-width: 0;
+    max-width: 100%;
+  }
+
   .teacher-event-card img,
   .poster-placeholder {
     width: 100%;
@@ -1169,6 +1327,7 @@ button:disabled {
 
   .teacher-status-grid,
   .profile-grid,
+  .saved-profile-summary,
   .metric-grid.compact,
   .recipient-grid,
   .event-editor,
@@ -1186,6 +1345,10 @@ button:disabled {
   }
 
   .workflow-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-request-row {
     grid-template-columns: 1fr;
   }
 

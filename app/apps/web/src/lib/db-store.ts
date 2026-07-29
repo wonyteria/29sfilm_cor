@@ -9,6 +9,7 @@ import type {
   DreamApplication,
   DreamEvent,
   EventStatus,
+  ProfileChangeRequest,
   SubmissionWork,
   TeacherProfile
 } from "./with-types";
@@ -31,6 +32,11 @@ export async function readDbState(): Promise<AppState> {
     orderBy: { createdAt: "desc" }
   });
   const teachers = await prisma.teacherProfile.findMany({ include: { user: true }, orderBy: { createdAt: "desc" } });
+  const verificationFileIds = teachers.map((teacher) => teacher.idCardFileId).filter(Boolean) as string[];
+  const verificationFiles = verificationFileIds.length
+    ? await prisma.fileAsset.findMany({ where: { id: { in: verificationFileIds } } })
+    : [];
+  const verificationFileById = new Map(verificationFiles.map((file) => [file.id, file]));
   const participationSummaries = await prisma.schoolParticipationSummary.findMany();
   const summaryBySchool = new Map(participationSummaries.map((summary) => [summary.schoolName, summary]));
   const applications = await prisma.dreamApplication.findMany({ orderBy: { appliedAt: "desc" } });
@@ -47,6 +53,11 @@ export async function readDbState(): Promise<AppState> {
   });
   const certificateTemplates = await prisma.certificateTemplate.findMany({ orderBy: { createdAt: "desc" } });
   const notices = await prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 100 });
+  const profileChangeRequests = await prisma.teacherRequest.findMany({
+    where: { requestType: "PROFILE_CHANGE" },
+    orderBy: { createdAt: "desc" }
+  });
+  const teacherById = new Map(teachers.map((teacher) => [teacher.id, teacher]));
 
   return {
     events: events.map((item) => ({
@@ -79,6 +90,9 @@ export async function readDbState(): Promise<AppState> {
       email: item.contactEmail || item.user.email,
       phone: item.contactPhone || item.user.phone || "",
       affiliationName: item.affiliationName,
+      verificationFileName: item.idCardFileId ? verificationFileById.get(item.idCardFileId)?.originalName : undefined,
+      verificationStatus: item.idCardFileId ? "PENDING" : "NOT_SUBMITTED",
+      profileLocked: item.affiliationChangeLocked,
       trustStatus: normalizeTrustStatus(summaryBySchool.get(item.schoolName)?.trustStatus)
     } satisfies TeacherProfile)),
     applications: applications.map((item) => ({
@@ -134,7 +148,26 @@ export async function readDbState(): Promise<AppState> {
       message: `${item.entityType} ${item.entityId}`,
       status: "OPEN",
       createdAt: item.createdAt.toISOString()
-    } satisfies AdminNotice))
+    } satisfies AdminNotice)),
+    profileChangeRequests: profileChangeRequests.map((item) => {
+      const profile = item.teacherProfileId ? teacherById.get(item.teacherProfileId) : undefined;
+      const details = parseProfileChangeRequest(item.body);
+      return {
+        id: item.id,
+        teacherProfileId: item.teacherProfileId || "",
+        teacherName: profile?.teacherName || "",
+        email: profile?.contactEmail || profile?.user.email || "",
+        currentSchoolName: details.currentSchoolName,
+        requestedSchoolName: details.requestedSchoolName,
+        currentAffiliationName: details.currentAffiliationName,
+        requestedAffiliationName: details.requestedAffiliationName,
+        reason: details.reason,
+        teacherConfirmed: details.teacherConfirmed,
+        status: item.status === "APPROVED" ? "APPROVED" : item.status === "REJECTED" ? "REJECTED" : "SUBMITTED",
+        adminReply: item.adminReply || "",
+        createdAt: item.createdAt.toISOString()
+      } satisfies ProfileChangeRequest;
+    })
   };
 }
 
@@ -216,6 +249,136 @@ export async function addDbEvent(input: Omit<DreamEvent, "id" | "createdAt">) {
   return buildDbDashboard(await readDbState());
 }
 
+export async function saveDbTeacherProfile(input: {
+  email: string;
+  teacherName: string;
+  schoolName: string;
+  phone: string;
+  affiliationName: string;
+  verificationFileName?: string;
+  verificationDataUrl?: string;
+}) {
+  const user = await prisma.user.findUnique({ where: { email: input.email } });
+  if (!user || user.userType !== "TEACHER") throw new Error("선생님 계정을 찾을 수 없습니다.");
+
+  const existingProfile = await prisma.teacherProfile.findUnique({ where: { userId: user.id } });
+  if (
+    existingProfile?.affiliationChangeLocked &&
+    (existingProfile.schoolName !== input.schoolName || existingProfile.affiliationName !== input.affiliationName)
+  ) {
+    throw new Error("신청 후 학교명과 출품 소속명은 직접 변경할 수 없습니다. 변경 요청을 이용해 주세요.");
+  }
+
+  const verificationFile =
+    input.verificationFileName && input.verificationDataUrl
+      ? await storeFileAsset({
+          originalName: input.verificationFileName,
+          dataUrl: input.verificationDataUrl,
+          uploadedBy: user.id,
+          folder: "teacher-verification"
+        })
+      : null;
+
+  const profile = await prisma.teacherProfile.upsert({
+    where: { userId: user.id },
+    update: {
+      teacherName: input.teacherName,
+      schoolName: input.schoolName,
+      contactPhone: input.phone,
+      contactEmail: input.email,
+      affiliationName: input.affiliationName,
+      ...(verificationFile ? { idCardFileId: verificationFile.id } : {})
+    },
+    create: {
+      userId: user.id,
+      teacherName: input.teacherName,
+      schoolName: input.schoolName,
+      contactPhone: input.phone,
+      contactEmail: input.email,
+      affiliationName: input.affiliationName,
+      idCardFileId: verificationFile?.id
+    }
+  });
+  await prisma.user.update({ where: { id: user.id }, data: { name: input.teacherName, phone: input.phone } });
+  await audit(prisma, existingProfile ? "선생님 프로필 수정" : "선생님 프로필 등록", "TeacherProfile", profile.id);
+  return buildDbDashboard(await readDbState());
+}
+
+export async function requestDbProfileChange(input: {
+  email: string;
+  requestedSchoolName: string;
+  requestedAffiliationName: string;
+  reason: string;
+  teacherConfirmed: boolean;
+}) {
+  const profile = await prisma.teacherProfile.findFirst({ where: { user: { email: input.email } } });
+  if (!profile) throw new Error("먼저 내 프로필을 작성해 주세요.");
+  if (!input.teacherConfirmed) throw new Error("변경 내용을 다시 확인해 주세요.");
+  if (profile.schoolName === input.requestedSchoolName && profile.affiliationName === input.requestedAffiliationName) {
+    throw new Error("현재 프로필과 변경하려는 내용이 같습니다.");
+  }
+  const existing = await prisma.teacherRequest.findFirst({
+    where: { teacherProfileId: profile.id, requestType: "PROFILE_CHANGE", status: "SUBMITTED" }
+  });
+  if (existing) throw new Error("처리 대기 중인 프로필 변경 요청이 있습니다.");
+  const details = {
+    currentSchoolName: profile.schoolName,
+    requestedSchoolName: input.requestedSchoolName,
+    currentAffiliationName: profile.affiliationName,
+    requestedAffiliationName: input.requestedAffiliationName,
+    reason: input.reason,
+    teacherConfirmed: true
+  };
+  const request = await prisma.teacherRequest.create({
+    data: {
+      teacherProfileId: profile.id,
+      requestType: "PROFILE_CHANGE",
+      title: "학교명/출품 소속명 변경 요청",
+      body: JSON.stringify(details),
+      status: "SUBMITTED"
+    }
+  });
+  await audit(prisma, "프로필 변경 요청", "TeacherRequest", request.id);
+  return buildDbDashboard(await readDbState());
+}
+
+export async function reviewDbProfileChange(input: {
+  requestId: string;
+  status: "APPROVED" | "REJECTED";
+  adminReply?: string;
+  handledBy: string;
+}) {
+  await prisma.$transaction(async (tx) => {
+    const request = await tx.teacherRequest.findUnique({ where: { id: input.requestId } });
+    if (!request || request.requestType !== "PROFILE_CHANGE" || !request.teacherProfileId) {
+      throw new Error("변경 요청을 찾을 수 없습니다.");
+    }
+    if (request.status !== "SUBMITTED") throw new Error("이미 처리된 변경 요청입니다.");
+    const details = parseProfileChangeRequest(request.body);
+    if (input.status === "APPROVED") {
+      await tx.teacherProfile.update({
+        where: { id: request.teacherProfileId },
+        data: {
+          schoolName: details.requestedSchoolName,
+          affiliationName: details.requestedAffiliationName,
+          affiliationChangeLocked: true
+        }
+      });
+    }
+    await tx.teacherRequest.update({
+      where: { id: input.requestId },
+      data: {
+        status: input.status,
+        adminReply: input.adminReply || null,
+        handledBy: input.handledBy,
+        handledAt: new Date()
+      }
+    });
+    await audit(tx, input.status === "APPROVED" ? "프로필 변경 승인" : "프로필 변경 반려", "TeacherRequest", request.id);
+  });
+  return buildDbDashboard(await readDbState());
+}
+
 export async function addDbApplication(input: {
   eventId: string;
   schoolName: string;
@@ -229,40 +392,14 @@ export async function addDbApplication(input: {
   memo?: string;
 }) {
   await prisma.$transaction(async (tx) => {
-    const user = await tx.user.upsert({
-      where: { email: input.email },
-      update: { name: input.teacherName, phone: input.phone || null },
-      create: {
-        userType: "TEACHER",
-        name: input.teacherName,
-        email: input.email,
-        phone: input.phone || null,
-        passwordHash: "SET_PASSWORD_ON_FIRST_LOGIN"
-      }
-    });
+    const user = await tx.user.findUnique({ where: { email: input.email } });
+    if (!user || user.userType !== "TEACHER") throw new Error("선생님 계정을 찾을 수 없습니다.");
     const existingProfile = await tx.teacherProfile.findUnique({ where: { userId: user.id } });
-    if (
-      existingProfile &&
-      (existingProfile.schoolName !== input.schoolName || existingProfile.affiliationName !== input.affiliationName)
-    ) {
-      throw new Error("기존 프로필의 학교명 또는 출품 소속명과 다릅니다. 관리자에게 변경 확인을 요청해 주세요.");
+    if (!existingProfile) throw new Error("행사 신청 전에 내 프로필을 먼저 작성해 주세요.");
+    if (existingProfile.schoolName !== input.schoolName || existingProfile.affiliationName !== input.affiliationName) {
+      throw new Error("저장된 프로필과 신청 정보가 다릅니다. 내 프로필을 확인해 주세요.");
     }
-    const profile = await tx.teacherProfile.upsert({
-      where: { userId: user.id },
-      update: {
-        teacherName: input.teacherName,
-        contactPhone: input.phone || null,
-        contactEmail: input.email
-      },
-      create: {
-        userId: user.id,
-        schoolName: input.schoolName,
-        teacherName: input.teacherName,
-        contactPhone: input.phone || null,
-        contactEmail: input.email,
-        affiliationName: input.affiliationName
-      }
-    });
+    const profile = existingProfile;
     const existingApplication = await tx.dreamApplication.findFirst({
       where: { dreamEventId: input.eventId, teacherProfileId: profile.id }
     });
@@ -280,6 +417,7 @@ export async function addDbApplication(input: {
         status: "SUBMITTED"
       }
     });
+    await tx.teacherProfile.update({ where: { id: profile.id }, data: { affiliationChangeLocked: true } });
     await audit(tx, "신청 접수", "DreamApplication", application.id);
   });
   return buildDbDashboard(await readDbState());
@@ -597,6 +735,31 @@ function normalizeTrustStatus(status?: string): TeacherProfile["trustStatus"] {
   if (status === "BENEFIT" || status === "EXCELLENT") return "BENEFIT";
   if (status === "PENALTY" || status === "NON_PERFORMANCE") return "PENALTY";
   return "NORMAL";
+}
+
+function parseProfileChangeRequest(value?: string | null) {
+  const empty = {
+    currentSchoolName: "",
+    requestedSchoolName: "",
+    currentAffiliationName: "",
+    requestedAffiliationName: "",
+    reason: "",
+    teacherConfirmed: false
+  };
+  if (!value) return empty;
+  try {
+    const parsed = JSON.parse(value) as Partial<typeof empty>;
+    return {
+      currentSchoolName: String(parsed.currentSchoolName || ""),
+      requestedSchoolName: String(parsed.requestedSchoolName || ""),
+      currentAffiliationName: String(parsed.currentAffiliationName || ""),
+      requestedAffiliationName: String(parsed.requestedAffiliationName || ""),
+      reason: String(parsed.reason || ""),
+      teacherConfirmed: parsed.teacherConfirmed === true
+    };
+  } catch {
+    return empty;
+  }
 }
 
 function pick(row: Row, keys: string[]) {

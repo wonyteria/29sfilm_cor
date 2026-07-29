@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { Bell, CheckCircle2, FileCheck2, Gift, Home, Mail, Plus, RefreshCw, Upload } from "lucide-react";
-import type { DashboardResponse, DreamApplication, DreamEvent, EventType, SubmissionWork, TeacherProfile } from "@/lib/with-types";
+import type { DashboardResponse, DreamApplication, DreamEvent, EventType, ProfileChangeRequest, SubmissionWork, TeacherProfile } from "@/lib/with-types";
 import { applicationStatusLabels, eventTypeLabels, matchStatusLabels, statusLabels } from "@/lib/with-types";
 
 type ViewMode = "teacher" | "admin";
@@ -64,6 +64,7 @@ const emptyDashboard: DashboardResponse = {
   coupons: [],
   certificateTemplates: [],
   notices: [],
+  profileChangeRequests: [],
   stats: {
     activeEventCount: 0,
     selectedSchoolCount: 0,
@@ -84,6 +85,7 @@ export default function HomePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<SessionUser | null>(null);
   const [authPanel, setAuthPanel] = useState<"login" | "signup">("login");
+  const [pendingApplicationEventId, setPendingApplicationEventId] = useState("");
 
   useEffect(() => {
     void (async () => {
@@ -235,15 +237,22 @@ export default function HomePage() {
   }
 
   async function handleApply(eventItem: DreamEvent, formData: FormData) {
-    await postJson(
+    const profile = data.teachers[0];
+    if (!profile) {
+      setPendingApplicationEventId(eventItem.id);
+      setTeacherPage("profile");
+      setMessage("행사 신청 전에 내 프로필을 먼저 완료해 주세요.");
+      return false;
+    }
+    const nextData = await postJson(
       "/api/applications",
       {
         eventId: eventItem.id,
-        schoolName: formData.get("schoolName"),
-        teacherName: formData.get("teacherName"),
-        email: formData.get("email"),
-        phone: formData.get("phone"),
-        affiliationName: formData.get("affiliationName"),
+        schoolName: profile.schoolName,
+        teacherName: currentUser?.name,
+        email: currentUser?.email,
+        phone: profile.phone,
+        affiliationName: profile.affiliationName,
         expectedSubmissionCount: Number(formData.get("expectedSubmissionCount") || 1),
         plannedSubmissionDate: formData.get("plannedSubmissionDate"),
         usagePlan: formData.get("usagePlan"),
@@ -251,7 +260,48 @@ export default function HomePage() {
       },
       "꿈프 신청을 접수했습니다."
     );
-    setTeacherPage("home");
+    if (nextData) {
+      setTeacherPage("home");
+      setPendingApplicationEventId("");
+    }
+    return Boolean(nextData);
+  }
+
+  async function handleSaveProfile(formData: FormData) {
+    const verificationFile = formData.get("verificationFile");
+    const nextData = await postJson(
+      "/api/profile",
+      {
+        profileId: data.teachers[0]?.id,
+        schoolName: formData.get("schoolName"),
+        phone: formData.get("phone"),
+        affiliationName: formData.get("affiliationName"),
+        verificationFileName: verificationFile instanceof File && verificationFile.size ? verificationFile.name : "",
+        verificationDataUrl: verificationFile instanceof File && verificationFile.size ? await fileToDataUrl(verificationFile) : ""
+      },
+      "내 프로필을 저장했습니다."
+    );
+    if (nextData && pendingApplicationEventId) setTeacherPage("available");
+    return Boolean(nextData);
+  }
+
+  async function handleProfileChangeRequest(formData: FormData) {
+    const nextData = await postJson(
+      "/api/profile",
+      {
+        requestedSchoolName: formData.get("requestedSchoolName"),
+        requestedAffiliationName: formData.get("requestedAffiliationName"),
+        reason: formData.get("reason"),
+        teacherConfirmed: formData.get("teacherConfirmed") === "on"
+      },
+      "프로필 변경 요청을 관리자에게 전달했습니다.",
+      "PUT"
+    );
+    return Boolean(nextData);
+  }
+
+  async function handleProfileChangeReview(requestId: string, status: "APPROVED" | "REJECTED", adminReply: string) {
+    await postJson("/api/profile", { requestId, status, adminReply }, status === "APPROVED" ? "변경 요청을 승인했습니다." : "변경 요청을 반려했습니다.", "PATCH");
   }
 
   async function handleApplicationStatus(applicationId: string, status: DreamApplication["status"]) {
@@ -379,10 +429,26 @@ export default function HomePage() {
         {message ? <div className="toast-inline">{message}</div> : null}
         {isLoading ? <section className="panel">불러오는 중입니다.</section> : null}
 
-        {!isLoading && mode === "teacher" ? <TeacherPortal page={teacherPage} data={data} setPage={setTeacherPage} onApply={handleApply} currentUser={currentUser} /> : null}
+        {!isLoading && mode === "teacher" ? (
+          <TeacherPortal
+            page={teacherPage}
+            data={data}
+            setPage={setTeacherPage}
+            onApply={handleApply}
+            onSaveProfile={handleSaveProfile}
+            onProfileChangeRequest={handleProfileChangeRequest}
+            currentUser={currentUser}
+            pendingApplicationEventId={pendingApplicationEventId}
+            onRequireProfile={(eventId) => {
+              setPendingApplicationEventId(eventId);
+              setTeacherPage("profile");
+              setMessage("행사 신청 전에 내 프로필을 먼저 완료해 주세요.");
+            }}
+          />
+        ) : null}
         {!isLoading && mode === "admin" && adminPage === "dashboard" ? <AdminDashboard data={data} selectedEvent={selectedEvent} setPage={setAdminPage} onSelectEvent={setSelectedEventId} onEventStatus={handleEventStatus} /> : null}
         {!isLoading && mode === "admin" && adminPage === "events" ? <EventsPage data={data} selectedEvent={selectedEvent} onCreateEvent={handleCreateEvent} onSelectEvent={setSelectedEventId} onEventStatus={handleEventStatus} /> : null}
-        {!isLoading && mode === "admin" && adminPage === "teachers" ? <TeachersDbPage data={data} selectedEvent={selectedEvent} /> : null}
+        {!isLoading && mode === "admin" && adminPage === "teachers" ? <TeachersDbPage data={data} selectedEvent={selectedEvent} onProfileChangeReview={handleProfileChangeReview} /> : null}
         {!isLoading && mode === "admin" && adminPage === "applications" ? <ApplicationsPage data={data} selectedEvent={selectedEvent} onApplicationStatus={handleApplicationStatus} /> : null}
         {!isLoading && mode === "admin" && adminPage === "submissions" ? <SubmissionsPage data={data} selectedEvent={selectedEvent} onUpload={handleSubmissionUpload} onConfirmMatch={handleConfirmMatch} /> : null}
         {!isLoading && mode === "admin" && adminPage === "benefits" ? <BenefitsPage data={data} onCouponUpload={handleCouponUpload} /> : null}
@@ -394,18 +460,60 @@ export default function HomePage() {
   );
 }
 
-function TeacherPortal({ page, data, setPage, onApply, currentUser }: { page: TeacherPage; data: DashboardResponse; setPage: (page: TeacherPage) => void; onApply: (eventItem: DreamEvent, formData: FormData) => void; currentUser: SessionUser | null }) {
+function TeacherPortal({
+  page,
+  data,
+  setPage,
+  onApply,
+  onSaveProfile,
+  onProfileChangeRequest,
+  currentUser,
+  pendingApplicationEventId,
+  onRequireProfile
+}: {
+  page: TeacherPage;
+  data: DashboardResponse;
+  setPage: (page: TeacherPage) => void;
+  onApply: (eventItem: DreamEvent, formData: FormData) => Promise<boolean>;
+  onSaveProfile: (formData: FormData) => Promise<boolean>;
+  onProfileChangeRequest: (formData: FormData) => Promise<boolean>;
+  currentUser: SessionUser | null;
+  pendingApplicationEventId: string;
+  onRequireProfile: (eventId: string) => void;
+}) {
   const teacherApplications = data.applications;
   const availableEvents = data.events.filter((event) => event.status === "RECRUITING");
   const teacherWorks = data.submissions;
   const profile = data.teachers[0];
   const trustLabel = profile?.trustStatus === "BENEFIT" ? "우선 선정" : profile?.trustStatus === "PENALTY" ? "선정 후순위" : "일반";
 
-  if (page === "available") return <TeacherAvailableEvents events={availableEvents} onApply={onApply} currentUser={currentUser} />;
+  if (page === "available") {
+    return (
+      <TeacherAvailableEvents
+        events={availableEvents}
+        onApply={onApply}
+        currentUser={currentUser}
+        profile={profile}
+        initialOpenEventId={pendingApplicationEventId}
+        onRequireProfile={onRequireProfile}
+      />
+    );
+  }
   if (page === "works") return <TeacherWorks works={teacherWorks} events={data.events} />;
   if (page === "benefits") return <TeacherBenefits data={data} applications={teacherApplications} />;
   if (page === "docs") return <TeacherDocuments works={teacherWorks} events={data.events} applications={teacherApplications} />;
-  if (page === "profile") return <TeacherProfilePanel profile={profile} currentUser={currentUser} />;
+  if (page === "profile") {
+    return (
+      <TeacherProfilePanel
+        profile={profile}
+        currentUser={currentUser}
+        requests={data.profileChangeRequests}
+        onSave={onSaveProfile}
+        onChangeRequest={onProfileChangeRequest}
+        returningToApplication={Boolean(pendingApplicationEventId)}
+      />
+    );
+  }
 
   return (
     <>
@@ -461,14 +569,29 @@ function AuthPanel({ mode, onLogin, onSignup }: { mode: "login" | "signup"; onLo
   );
 }
 
-function TeacherAvailableEvents({ events, onApply, currentUser }: { events: DreamEvent[]; onApply: (eventItem: DreamEvent, formData: FormData) => void; currentUser: SessionUser | null }) {
-  const [openEventId, setOpenEventId] = useState("");
+function TeacherAvailableEvents({
+  events,
+  onApply,
+  currentUser,
+  profile,
+  initialOpenEventId,
+  onRequireProfile
+}: {
+  events: DreamEvent[];
+  onApply: (eventItem: DreamEvent, formData: FormData) => Promise<boolean>;
+  currentUser: SessionUser | null;
+  profile?: TeacherProfile;
+  initialOpenEventId: string;
+  onRequireProfile: (eventId: string) => void;
+}) {
+  const [openEventId, setOpenEventId] = useState(initialOpenEventId);
 
-  function submitApplication(eventItem: DreamEvent, submitEvent: FormEvent<HTMLFormElement>) {
+  async function submitApplication(eventItem: DreamEvent, submitEvent: FormEvent<HTMLFormElement>) {
     submitEvent.preventDefault();
-    onApply(eventItem, new FormData(submitEvent.currentTarget));
-    submitEvent.currentTarget.reset();
-    setOpenEventId("");
+    if (await onApply(eventItem, new FormData(submitEvent.currentTarget))) {
+      submitEvent.currentTarget.reset();
+      setOpenEventId("");
+    }
   }
 
   return (
@@ -490,16 +613,27 @@ function TeacherAvailableEvents({ events, onApply, currentUser }: { events: Drea
                 <p className="event-notice">{event.notice || "등록된 안내사항이 없습니다."}</p>
                 <div className="button-row">
                   {event.submissionUrl ? <a className="ghost-button" href={event.submissionUrl} rel="noreferrer" target="_blank">출품하기</a> : null}
-                  <button className="primary-button" onClick={() => setOpenEventId(openEventId === event.id ? "" : event.id)} type="button">신청하기</button>
+                  <button
+                    className="primary-button"
+                    onClick={() => (profile ? setOpenEventId(openEventId === event.id ? "" : event.id) : onRequireProfile(event.id))}
+                    type="button"
+                  >
+                    신청하기
+                  </button>
                 </div>
                 {openEventId === event.id ? (
                   currentUser?.emailVerified ? (
                     <form className="form-grid sub-panel" onSubmit={(submitEvent) => submitApplication(event, submitEvent)}>
-                      <label>학교명<input name="schoolName" required placeholder="예: 미림마이스터고" /></label>
-                      <label>담당 선생님<input name="teacherName" required defaultValue={currentUser.name} /></label>
-                      <label>업무용 이메일<input name="email" required type="email" defaultValue={currentUser.email} /></label>
-                      <label>연락처<input name="phone" placeholder="010-0000-0000" /></label>
-                      <label>출품 소속명/팀명<input name="affiliationName" required placeholder="출품 엑셀의 소속/팀명과 정확히 동일하게 입력" /></label>
+                      <div className="wide saved-profile-summary">
+                        <div><span>학교명</span><strong>{profile?.schoolName}</strong></div>
+                        <div><span>담당교사</span><strong>{currentUser.name}</strong></div>
+                        <div><span>업무용 이메일</span><strong>{currentUser.email}</strong></div>
+                        <div><span>연락처</span><strong>{profile?.phone}</strong></div>
+                      </div>
+                      <div className="wide affiliation-warning">
+                        <strong>출품 소속명/팀명: {profile?.affiliationName}</strong>
+                        <p>실제 출품 시 입력하는 소속명 또는 팀명과 글자와 띄어쓰기까지 동일해야 자동으로 출품작이 확인됩니다.</p>
+                      </div>
                       <label>예상 작품 수<input name="expectedSubmissionCount" required min="1" type="number" defaultValue={1} /></label>
                       <label>출품 예정일<input name="plannedSubmissionDate" required type="date" /></label>
                       <label className="wide application-confirm">
@@ -573,16 +707,117 @@ function TeacherDocuments({ works, events, applications }: { works: SubmissionWo
   );
 }
 
-function TeacherProfilePanel({ profile, currentUser }: { profile?: TeacherProfile; currentUser: SessionUser | null }) {
+function TeacherProfilePanel({
+  profile,
+  currentUser,
+  requests,
+  onSave,
+  onChangeRequest,
+  returningToApplication
+}: {
+  profile?: TeacherProfile;
+  currentUser: SessionUser | null;
+  requests: ProfileChangeRequest[];
+  onSave: (formData: FormData) => Promise<boolean>;
+  onChangeRequest: (formData: FormData) => Promise<boolean>;
+  returningToApplication: boolean;
+}) {
+  const [editing, setEditing] = useState(!profile);
+  const [changeRequestOpen, setChangeRequestOpen] = useState(false);
+  const pendingRequest = requests.find((request) => request.status === "SUBMITTED");
+
+  async function submitProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (await onSave(new FormData(event.currentTarget))) setEditing(false);
+  }
+
+  async function submitChangeRequest(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (await onChangeRequest(new FormData(event.currentTarget))) setChangeRequestOpen(false);
+  }
+
   return (
     <section className="panel teacher-panel">
-      <SectionHead title="내 프로필" text="학교명과 출품 소속명은 매칭 기준이므로 변경 요청으로 관리합니다." />
-      <div className="profile-grid">
-        <TeacherInfoCard label="학교명" value={profile?.schoolName || "첫 신청 전"} text="신청 후 변경은 관리자 확인이 필요합니다." />
-        <TeacherInfoCard label="출품 소속명/팀명" value={profile?.affiliationName || "첫 신청 전"} text="출품 엑셀의 소속/팀명과 정확히 일치해야 합니다." />
-        <TeacherInfoCard label="연락처" value={profile?.phone || "미등록"} text={currentUser?.email || "업무용 이메일"} />
-        <TeacherInfoCard label="교사 증빙" value={profile?.verificationFileName || "미등록"} text="증빙 업로드 기능은 다음 운영 설정에서 활성화됩니다." />
-      </div>
+      <SectionHead
+        title={profile ? "내 프로필" : "신청 전 프로필 작성"}
+        text={returningToApplication ? "프로필을 저장하면 선택했던 행사 신청서로 돌아갑니다." : undefined}
+      />
+      {editing ? (
+        <form className="form-grid profile-form" onSubmit={submitProfile}>
+          <label>담당교사명<input readOnly value={currentUser?.name || ""} /></label>
+          <label>업무용 이메일<input readOnly type="email" value={currentUser?.email || ""} /></label>
+          <label>학교명<input defaultValue={profile?.schoolName || ""} name="schoolName" readOnly={profile?.profileLocked} required placeholder="정식 학교명을 입력해 주세요" /></label>
+          <label>연락처<input defaultValue={profile?.phone || ""} name="phone" required placeholder="010-0000-0000" /></label>
+          <label className="wide">
+            출품 소속명/팀명
+            <input defaultValue={profile?.affiliationName || ""} name="affiliationName" readOnly={profile?.profileLocked} required placeholder="실제 출품 시 사용할 소속명 또는 팀명" />
+          </label>
+          <div className="wide affiliation-warning">
+            <strong>출품 확인을 위한 필수 기준입니다.</strong>
+            <p>29초영화제 출품 시 입력하는 ‘소속명’ 또는 29역숏폼왕 출품 시 입력하는 ‘팀명’과 글자 및 띄어쓰기까지 동일하게 입력해 주세요. 다르면 출품 확인이 지연되거나 지원 대상에서 제외될 수 있습니다.</p>
+          </div>
+          <label className="wide">
+            교사 증빙자료 {profile?.verificationFileName ? <small>현재 파일: {profile.verificationFileName}</small> : null}
+            <input accept=".pdf,.png,.jpg,.jpeg" name="verificationFile" required={!profile?.verificationFileName} type="file" />
+            <small>교사 확인증 등 재직 사실을 확인할 수 있는 PDF 또는 이미지 파일</small>
+          </label>
+          <label className="wide application-confirm">
+            <input required type="checkbox" />
+            <span>학교명과 출품 소속명/팀명을 실제 출품 정보와 동일하게 입력했는지 다시 확인했습니다.</span>
+          </label>
+          <div className="form-actions">
+            {profile ? <button className="ghost-button" onClick={() => setEditing(false)} type="button">취소</button> : null}
+            <button className="primary-button" type="submit">{returningToApplication ? "저장하고 신청 계속하기" : "프로필 저장"}</button>
+          </div>
+        </form>
+      ) : (
+        <>
+          <div className="profile-grid">
+            <TeacherInfoCard label="담당교사명" value={currentUser?.name || profile?.teacherName || "-"} text="회원가입 정보에서 자동 입력" />
+            <TeacherInfoCard label="업무용 이메일" value={currentUser?.email || profile?.email || "-"} text="회원가입 정보에서 자동 입력" />
+            <TeacherInfoCard label="학교명" value={profile?.schoolName || "-"} text={profile?.profileLocked ? "신청 후 변경 요청 필요" : "수정 가능"} />
+            <TeacherInfoCard label="연락처" value={profile?.phone || "-"} text="운영 안내 연락처" />
+            <TeacherInfoCard label="출품 소속명/팀명" value={profile?.affiliationName || "-"} text="실제 출품 정보와 정확히 일치해야 합니다." />
+            <TeacherInfoCard label="교사 증빙" value={profile?.verificationFileName || "미등록"} text={profile?.verificationStatus === "APPROVED" ? "확인 완료" : "관리자 확인 대기"} />
+          </div>
+          <div className="panel-action profile-actions">
+            <button className="ghost-button" onClick={() => setEditing(true)} type="button">연락처·증빙 수정</button>
+            {profile?.profileLocked ? (
+              <button className="ghost-button" disabled={Boolean(pendingRequest)} onClick={() => setChangeRequestOpen(true)} type="button">
+                {pendingRequest ? "변경 요청 처리 대기" : "학교명·출품 소속명 변경 요청"}
+              </button>
+            ) : null}
+          </div>
+          {requests.filter((request) => request.status !== "SUBMITTED").slice(0, 1).map((request) => (
+            <div className="request-result" key={request.id}>
+              <strong>최근 변경 요청: {request.status === "APPROVED" ? "승인" : "반려"}</strong>
+              {request.adminReply ? <p>{request.adminReply}</p> : null}
+            </div>
+          ))}
+        </>
+      )}
+      {changeRequestOpen && profile ? (
+        <div className="modal-backdrop" role="presentation">
+          <section aria-modal="true" className="modal-panel" role="dialog">
+            <SectionHead title="학교명·출품 소속명 변경 요청" text="선생님이 요청 내용을 재확인한 뒤 관리자가 승인해야 반영됩니다." />
+            <form className="form-grid" onSubmit={submitChangeRequest}>
+              <label>현재 학교명<input readOnly value={profile.schoolName} /></label>
+              <label>변경할 학교명<input defaultValue={profile.schoolName} name="requestedSchoolName" required /></label>
+              <label>현재 출품 소속명<input readOnly value={profile.affiliationName} /></label>
+              <label>변경할 출품 소속명<input defaultValue={profile.affiliationName} name="requestedAffiliationName" required /></label>
+              <label className="wide">변경 사유<textarea name="reason" required rows={3} /></label>
+              <label className="wide application-confirm">
+                <input name="teacherConfirmed" required type="checkbox" />
+                <span>변경 후 실제 출품할 소속명 또는 팀명과 정확히 일치하는지 확인했습니다.</span>
+              </label>
+              <div className="form-actions">
+                <button className="ghost-button" onClick={() => setChangeRequestOpen(false)} type="button">취소</button>
+                <button className="primary-button" type="submit">변경 요청 보내기</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -700,7 +935,15 @@ function ApplicationsPage({ data, selectedEvent, onApplicationStatus }: { data: 
   );
 }
 
-function TeachersDbPage({ data, selectedEvent }: { data: DashboardResponse; selectedEvent?: DreamEvent }) {
+function TeachersDbPage({
+  data,
+  selectedEvent,
+  onProfileChangeReview
+}: {
+  data: DashboardResponse;
+  selectedEvent?: DreamEvent;
+  onProfileChangeReview: (requestId: string, status: "APPROVED" | "REJECTED", adminReply: string) => void;
+}) {
   const rows = data.teachers.map((teacher) => {
     const teacherApplications = data.applications.filter((application) => application.teacherProfileId === teacher.id);
     const eventApplications = selectedEvent ? teacherApplications.filter((application) => application.eventId === selectedEvent.id) : teacherApplications;
@@ -714,7 +957,7 @@ function TeachersDbPage({ data, selectedEvent }: { data: DashboardResponse; sele
       <div className="metric-grid compact">
         <MetricCard label="가입 선생님" value={`${data.registeredTeachers.length}명`} />
         <MetricCard label="프로필 완료" value={`${data.teachers.length}명`} />
-        <MetricCard label="참여 학교" value={`${new Set(data.teachers.map((teacher) => teacher.schoolName)).size}교`} />
+        <MetricCard label="변경 확인 대기" value={`${data.profileChangeRequests.filter((request) => request.status === "SUBMITTED").length}건`} />
       </div>
       {data.registeredTeachers.some((teacher) => !teacher.profileId) ? (
         <div className="attention-strip">
@@ -735,7 +978,7 @@ function TeachersDbPage({ data, selectedEvent }: { data: DashboardResponse; sele
       {rows.length ? (
         <div className="table-wrap">
           <table>
-            <thead><tr><th>학교</th><th>담당 선생님</th><th>이메일</th><th>연락처</th><th>소속/팀명</th><th>신청/선정</th><th>출품 확인</th></tr></thead>
+            <thead><tr><th>학교</th><th>담당 선생님</th><th>이메일</th><th>연락처</th><th>소속/팀명</th><th>교사 증빙</th><th>신청/선정</th><th>출품 확인</th></tr></thead>
             <tbody>
               {rows.map(({ teacher, applications, eventApplications, works }) => {
                 const selectedCount = applications.filter((application) => application.status === "SELECTED").length;
@@ -746,6 +989,7 @@ function TeachersDbPage({ data, selectedEvent }: { data: DashboardResponse; sele
                     <td>{teacher.email || "-"}</td>
                     <td>{teacher.phone || "-"}</td>
                     <td>{teacher.affiliationName || "-"}</td>
+                    <td>{teacher.verificationFileName ? <a href={`/api/profile/verification?profileId=${encodeURIComponent(teacher.id)}`} rel="noreferrer" target="_blank">증빙 보기</a> : "미제출"}</td>
                     <td>{selectedEvent ? `${eventApplications.length}건` : `${applications.length}건 · 선정 ${selectedCount}건`}</td>
                     <td>{works.length}편</td>
                   </tr>
@@ -757,7 +1001,46 @@ function TeachersDbPage({ data, selectedEvent }: { data: DashboardResponse; sele
       ) : (
         <EmptyState title="등록된 선생님이 없습니다." text="선생님이 회원가입하거나 꿈프를 신청하면 이곳에 학교 DB가 쌓입니다." />
       )}
+      {data.profileChangeRequests.length ? (
+        <div className="sub-panel profile-request-list">
+          <h3>학교명·출품 소속명 변경 요청</h3>
+          {data.profileChangeRequests.map((request) => (
+            <ProfileChangeRequestRow key={request.id} request={request} onReview={onProfileChangeReview} />
+          ))}
+        </div>
+      ) : null}
     </section>
+  );
+}
+
+function ProfileChangeRequestRow({
+  request,
+  onReview
+}: {
+  request: ProfileChangeRequest;
+  onReview: (requestId: string, status: "APPROVED" | "REJECTED", adminReply: string) => void;
+}) {
+  const [reply, setReply] = useState(request.adminReply);
+  return (
+    <article className="profile-request-row">
+      <div>
+        <strong>{request.teacherName} · {request.email}</strong>
+        <p>학교명: {request.currentSchoolName} → {request.requestedSchoolName}</p>
+        <p>출품 소속명: {request.currentAffiliationName} → {request.requestedAffiliationName}</p>
+        <small>사유: {request.reason || "미입력"}</small>
+      </div>
+      {request.status === "SUBMITTED" ? (
+        <div className="request-review">
+          <input onChange={(event) => setReply(event.currentTarget.value)} placeholder="선생님에게 전달할 답변" value={reply} />
+          <div className="button-row">
+            <button className="ghost-button" onClick={() => onReview(request.id, "REJECTED", reply)} type="button">반려</button>
+            <button className="primary-button" onClick={() => onReview(request.id, "APPROVED", reply)} type="button">확인 후 승인</button>
+          </div>
+        </div>
+      ) : (
+        <span className={`status-pill ${request.status === "APPROVED" ? "success" : ""}`}>{request.status === "APPROVED" ? "승인" : "반려"}</span>
+      )}
+    </article>
   );
 }
 

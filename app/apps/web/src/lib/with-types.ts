@@ -37,6 +37,8 @@ export type TeacherProfile = {
   phone: string;
   affiliationName: string;
   verificationFileName?: string;
+  verificationStatus: "NOT_SUBMITTED" | "PENDING" | "APPROVED";
+  profileLocked: boolean;
   trustStatus: "BENEFIT" | "NORMAL" | "PENALTY";
 };
 
@@ -47,6 +49,22 @@ export type RegisteredTeacher = {
   status: string;
   createdAt: string;
   profileId?: string;
+};
+
+export type ProfileChangeRequest = {
+  id: string;
+  teacherProfileId: string;
+  teacherName: string;
+  email: string;
+  currentSchoolName: string;
+  requestedSchoolName: string;
+  currentAffiliationName: string;
+  requestedAffiliationName: string;
+  reason: string;
+  teacherConfirmed: boolean;
+  status: "SUBMITTED" | "APPROVED" | "REJECTED";
+  adminReply: string;
+  createdAt: string;
 };
 
 export type DreamApplication = {
@@ -112,6 +130,7 @@ export type AppState = {
   coupons: Coupon[];
   certificateTemplates: CertificateTemplate[];
   notices: AdminNotice[];
+  profileChangeRequests: ProfileChangeRequest[];
 };
 
 export type DashboardResponse = AppState & {
