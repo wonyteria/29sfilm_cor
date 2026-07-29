@@ -411,6 +411,7 @@ export default function HomePage() {
             <h1>{mode === "teacher" ? "선생님 포털" : "꿈프 운영"}</h1>
           </div>
           <div className="top-actions">
+            {mode === "teacher" ? <BrandPortalLinks compact /> : null}
             {mode === "admin" ? (
               <select value={selectedEventId} onChange={(event) => setSelectedEventId(event.target.value)}>
                 {data.events.length === 0 ? <option>등록된 꿈프 없음</option> : null}
@@ -455,8 +456,33 @@ export default function HomePage() {
         {!isLoading && mode === "admin" && adminPage === "documents" ? <DocumentsPage data={data} selectedEvent={selectedEvent} /> : null}
         {!isLoading && mode === "admin" && adminPage === "mails" ? <MailsPage data={data} selectedEvent={selectedEvent} onSubmit={handleMailSubmit} /> : null}
         {!isLoading && mode === "admin" && adminPage === "history" ? <HistoryPage data={data} /> : null}
+        {!isLoading && mode === "teacher" ? (
+          <footer className="teacher-footer">
+            <div>
+              <strong>학생들의 다음 장면을 함께 만들어 주세요.</strong>
+              <p>영화제 정보와 실제 출품은 각 공식 사이트에서 확인할 수 있습니다.</p>
+            </div>
+            <BrandPortalLinks />
+            <small>29 WITH · 영상 꿈나무 양성 프로젝트</small>
+          </footer>
+        ) : null}
       </section>
     </main>
+  );
+}
+
+function BrandPortalLinks({ compact = false }: { compact?: boolean }) {
+  return (
+    <div className={`brand-portal-links ${compact ? "compact" : ""}`}>
+      <a aria-label="29초영화제 공식 사이트 바로가기" href="https://www.29sfilm.com" rel="noreferrer" target="_blank">
+        <img alt="29초영화제" src="/brand/29film-logo-white.png" />
+        <span>공식 사이트</span>
+      </a>
+      <a aria-label="29역숏폼왕 공식 사이트 바로가기" href="https://www.29sking.com" rel="noreferrer" target="_blank">
+        <img alt="29역숏폼왕" src="/brand/29shortform-logo.png" />
+        <span>공식 사이트</span>
+      </a>
+    </div>
   );
 }
 

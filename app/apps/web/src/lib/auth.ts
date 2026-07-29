@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { compare, hash } from "bcryptjs";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { prisma, isDatabaseConfigured } from "./prisma";
 import { createSupabaseServerClient } from "./supabase-server";
 
@@ -37,7 +38,9 @@ function getSessionCookieUser(): SessionUser | null {
   const raw = cookies().get(sessionCookieName)?.value;
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as SessionUser;
+    const [payload, signature] = raw.split(".");
+    if (!payload || !signature || !isValidSessionSignature(payload, signature)) return null;
+    const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as SessionUser;
     if (!parsed.id || !parsed.email || !parsed.userType) return null;
     return parsed;
   } catch {
@@ -46,13 +49,31 @@ function getSessionCookieUser(): SessionUser | null {
 }
 
 export function setSessionCookie(user: SessionUser) {
-  cookies().set(sessionCookieName, Buffer.from(JSON.stringify(user)).toString("base64url"), {
+  const payload = Buffer.from(JSON.stringify(user)).toString("base64url");
+  cookies().set(sessionCookieName, `${payload}.${signSessionPayload(payload)}`, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: 60 * 60 * 24 * 14
   });
+}
+
+function signSessionPayload(payload: string) {
+  return createHmac("sha256", sessionSecret()).update(payload).digest("base64url");
+}
+
+function isValidSessionSignature(payload: string, signature: string) {
+  const expected = Buffer.from(signSessionPayload(payload));
+  const actual = Buffer.from(signature);
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+function sessionSecret() {
+  const secret = process.env.SESSION_SECRET || process.env.CRON_SECRET;
+  if (secret) return secret;
+  if (process.env.NODE_ENV === "production") throw new Error("세션 보안 설정이 필요합니다.");
+  return "29with-local-development-session-secret";
 }
 
 export function clearSessionCookie() {
