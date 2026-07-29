@@ -89,6 +89,67 @@ button {
   line-height: 1.7;
 }
 
+.login-story {
+  min-height: 260px;
+}
+
+.login-story-content {
+  animation: login-story-enter 620ms ease both;
+}
+
+.login-story-content > span {
+  display: inline-block;
+  margin-bottom: 14px;
+  color: #e11d2e;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.login-story-progress {
+  display: flex;
+  width: 88px;
+  gap: 7px;
+  margin-top: 24px;
+}
+
+.login-story-progress button {
+  width: 32px;
+  height: 3px;
+  min-height: 3px;
+  border: 0;
+  border-radius: 2px;
+  background: #d6deea;
+  padding: 0;
+  cursor: pointer;
+  transition: background-color 260ms ease, width 260ms ease;
+}
+
+.login-story-progress button.active {
+  width: 48px;
+  background: #e11d2e;
+}
+
+@keyframes login-story-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-story-content {
+    animation: none;
+  }
+
+  .login-story-progress button {
+    transition: none;
+  }
+}
+
 .login-highlights {
   display: flex;
   flex-wrap: wrap;
@@ -1575,6 +1636,10 @@ button:disabled {
 
   .login-brand h1 {
     font-size: 34px;
+  }
+
+  .login-story {
+    min-height: 250px;
   }
 
   .app-shell {

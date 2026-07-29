@@ -408,8 +408,7 @@ export default function HomePage() {
             </div>
           </div>
           <img alt="한국경제신문" className="login-sub-logo" src="/brand/hankyung-logo-color.png" />
-          <h1>영상을 만드는 사람과 응원하는 사람이 함께하는 공간입니다.</h1>
-          <p>학교 현장의 영상 창작 활동부터 29프렌즈의 출품과 홍보 활동까지, 참여 프로그램에 필요한 일을 한곳에서 관리합니다.</p>
+          <LoginBrandStory />
           <div className="login-highlights">
             <span>꿈프 운영</span>
             <span>29프렌즈 활동</span>
@@ -553,6 +552,49 @@ function BrandPortalLinks({ compact = false }: { compact?: boolean }) {
         <img alt="29역숏폼왕" src="/brand/29shortform-logo.png" />
         <span>공식 사이트</span>
       </a>
+    </div>
+  );
+}
+
+function LoginBrandStory() {
+  const stories = [
+    {
+      label: "영상 꿈나무 양성 프로젝트",
+      title: "학생들의 첫 장면이 시작될 수 있도록.",
+      text: "학교 현장의 영상 창작과 출품 과정을 이끌어 주시는 선생님을 위한 운영 공간입니다."
+    },
+    {
+      label: "2026 29프렌즈",
+      title: "좋은 영상을 더 많은 사람에게.",
+      text: "영화제 출품과 홍보 활동을 기록하고, 29초영화제의 새로운 장면을 함께 알리는 서포터즈 공간입니다."
+    }
+  ];
+  const [activeStory, setActiveStory] = useState(0);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setActiveStory((current) => (current + 1) % stories.length), 5200);
+    return () => window.clearInterval(timer);
+  }, [stories.length]);
+
+  const story = stories[activeStory];
+  return (
+    <div className="login-story" aria-live="off">
+      <div className="login-story-content" key={story.label}>
+        <span>{story.label}</span>
+        <h1>{story.title}</h1>
+        <p>{story.text}</p>
+      </div>
+      <div className="login-story-progress" aria-label="프로그램 소개 선택">
+        {stories.map((item, index) => (
+          <button
+            aria-label={`${item.label} 소개 보기`}
+            className={index === activeStory ? "active" : ""}
+            key={item.label}
+            onClick={() => setActiveStory(index)}
+            type="button"
+          />
+        ))}
+      </div>
     </div>
   );
 }
